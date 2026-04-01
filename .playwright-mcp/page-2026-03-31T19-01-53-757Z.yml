@@ -1,0 +1,197 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - heading "Racking Shipping Estimator" [level=1] [ref=e6]
+      - paragraph [ref=e7]: Calculate truck requirements for industrial racking orders
+    - generic "Online" [ref=e8]:
+      - img [ref=e9]
+      - generic [ref=e13]: Online
+  - generic [ref=e14]:
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - heading "Select Trailer Type" [level=2] [ref=e17]:
+          - img [ref=e18]
+          - text: Select Trailer Type
+        - generic [ref=e23]:
+          - generic [ref=e24] [cursor=pointer]:
+            - generic [ref=e25]: 53' Flatbed
+            - generic [ref=e26]: 53' · 48,000 lbs
+          - generic [ref=e27] [cursor=pointer]:
+            - generic [ref=e28]: 53' Roll-Tite
+            - generic [ref=e29]: 53' · 44,000 lbs
+          - generic [ref=e30] [cursor=pointer]:
+            - generic [ref=e31]: B-Train
+            - generic [ref=e32]: 60' · 90,000 lbs
+          - generic [ref=e33] [cursor=pointer]:
+            - generic [ref=e34]: 53' Closed Van
+            - generic [ref=e35]: 53' · 43,000 lbs
+        - button "Add Custom Trailer" [ref=e36] [cursor=pointer]:
+          - img [ref=e37]
+          - text: Add Custom Trailer
+        - generic [ref=e38] [cursor=pointer]:
+          - checkbox "Auto-select best trailer type for my order" [ref=e39]
+          - text: Auto-select best trailer type for my order
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - heading "Order Items" [level=2] [ref=e42]:
+            - img [ref=e43]
+            - text: Order Items
+          - generic [ref=e47]:
+            - button "Upload Quote" [ref=e48] [cursor=pointer]:
+              - img [ref=e49]
+              - text: Upload Quote
+            - button "Import Excel" [ref=e52] [cursor=pointer]:
+              - img [ref=e53]
+              - text: Import Excel
+        - generic [ref=e56] [cursor=pointer]:
+          - button "Remove" [ref=e57]:
+            - img [ref=e58]
+          - generic [ref=e61]: Frame — Structural Frame – C3 x 3.5
+          - generic [ref=e62]:
+            - generic [ref=e63]: Product
+            - combobox [ref=e64]:
+              - option "— Select —"
+              - option "Structural Frame – C3 x 3.5" [selected]
+              - option "Structural Frame – C4 x 4.5"
+              - option "Structural Frame – C5 x 6.7"
+              - option "Roll-Formed Frame – 3\" Upright"
+              - option "Roll-Formed Frame – 4\" Upright"
+          - generic [ref=e65]:
+            - generic [ref=e66]:
+              - generic [ref=e67]: Height (in)
+              - spinbutton [ref=e68]: "240"
+            - generic [ref=e69]:
+              - generic [ref=e70]: Width (in)
+              - spinbutton [ref=e71]: "42"
+            - generic [ref=e72]:
+              - generic [ref=e73]: Depth (in)
+              - spinbutton "Auto-calculated from frame type" [ref=e74]: "3"
+          - generic [ref=e75]:
+            - generic [ref=e76]:
+              - generic [ref=e77]: Quantity
+              - spinbutton [ref=e78]: "50"
+            - generic [ref=e79]:
+              - generic [ref=e80]: Weight/piece (lbs, 0=auto)
+              - spinbutton [ref=e81]: "0"
+          - generic [ref=e82]:
+            - generic [ref=e83]:
+              - checkbox "Non-stackable" [ref=e84]
+              - text: Non-stackable
+            - generic [ref=e85]:
+              - checkbox "Keep upright" [ref=e86]
+              - text: Keep upright
+            - generic [ref=e87]:
+              - checkbox "Lock orientation" [ref=e88]
+              - text: Lock orientation
+            - generic [ref=e89]:
+              - text: Max stack weight (lbs)
+              - spinbutton "Max stack weight (lbs)" [ref=e90]
+        - generic [ref=e91] [cursor=pointer]:
+          - button "Remove" [ref=e92]:
+            - img [ref=e93]
+          - generic [ref=e96]: Beam — Step Beam – 4"
+          - generic [ref=e97]:
+            - generic [ref=e98]: Product
+            - combobox [ref=e99]:
+              - option "— Select —"
+              - option "Step Beam – 3\""
+              - option "Step Beam – 3.5\""
+              - option "Step Beam – 4\"" [selected]
+              - option "Step Beam – 4.25\""
+              - option "Step Beam – 4.5\""
+              - option "Step Beam – 5\""
+              - option "Step Beam – 6\""
+              - option "Step Beam – 6.5\""
+              - option "Channel Beam – C3 x 3.5"
+              - option "Channel Beam – C4 x 4.5"
+              - option "Channel Beam – C5 x 6.7"
+              - option "Channel Beam – C6 x 8.2"
+              - option "Channel Beam – C8 x 11.2"
+          - generic [ref=e100]:
+            - generic [ref=e101]:
+              - generic [ref=e102]: Length (in)
+              - spinbutton [ref=e103]: "96"
+            - generic [ref=e104]:
+              - generic [ref=e105]: Weight/piece (lbs, 0=auto)
+              - spinbutton [ref=e106]: "0"
+          - generic [ref=e108]:
+            - generic [ref=e109]: Quantity
+            - spinbutton [ref=e110]: "200"
+          - generic [ref=e111]:
+            - generic [ref=e112]:
+              - checkbox "Non-stackable" [ref=e113]
+              - text: Non-stackable
+            - generic [ref=e114]:
+              - checkbox "Keep upright" [ref=e115]
+              - text: Keep upright
+            - generic [ref=e116]:
+              - checkbox "Lock orientation" [ref=e117]
+              - text: Lock orientation
+            - generic [ref=e118]:
+              - text: Max stack weight (lbs)
+              - spinbutton "Max stack weight (lbs)" [ref=e119]
+        - generic [ref=e120] [cursor=pointer]:
+          - button "Remove" [ref=e121]:
+            - img [ref=e122]
+          - generic [ref=e125]: Accessory
+          - generic [ref=e126]:
+            - generic [ref=e127]: Product
+            - combobox [ref=e128]:
+              - option "— Select —" [selected]
+              - option "Wire Deck 42\" x 46\""
+              - option "Wire Deck 42\" x 52\""
+              - option "Row Spacer"
+              - option "Safety Bar"
+              - option "Column Guard / Protector"
+              - option "Shim Plates"
+              - option "Custom Accessory"
+          - generic [ref=e129]:
+            - generic [ref=e130]:
+              - generic [ref=e131]: Weight/piece (lbs)
+              - spinbutton [ref=e132]: "0"
+            - generic [ref=e133]:
+              - generic [ref=e134]: Length (in)
+              - spinbutton [ref=e135]: "96"
+          - generic [ref=e137]:
+            - generic [ref=e138]: Quantity
+            - spinbutton [ref=e139]: "1"
+          - generic [ref=e140]:
+            - generic [ref=e141]:
+              - checkbox "Non-stackable" [ref=e142]
+              - text: Non-stackable
+            - generic [ref=e143]:
+              - checkbox "Keep upright" [ref=e144]
+              - text: Keep upright
+            - generic [ref=e145]:
+              - checkbox "Lock orientation" [ref=e146]
+              - text: Lock orientation
+            - generic [ref=e147]:
+              - text: Max stack weight (lbs)
+              - spinbutton "Max stack weight (lbs)" [ref=e148]
+        - generic [ref=e149]:
+          - button "Frame" [ref=e150] [cursor=pointer]:
+            - img [ref=e151]
+            - text: Frame
+          - button "Beam" [ref=e152] [cursor=pointer]:
+            - img [ref=e153]
+            - text: Beam
+          - button "Accessory" [ref=e154] [cursor=pointer]:
+            - img [ref=e155]
+            - text: Accessory
+          - button "Library (0)" [ref=e156] [cursor=pointer]:
+            - img [ref=e157]
+            - text: Library (0)
+      - generic [ref=e160]:
+        - button "Save Plan" [ref=e161] [cursor=pointer]:
+          - img [ref=e162]
+          - text: Save Plan
+        - button "Load Plan" [ref=e166] [cursor=pointer]:
+          - img [ref=e167]
+          - text: Load Plan
+      - button "Calculate Load Plan" [ref=e170] [cursor=pointer]:
+        - img [ref=e171]
+        - text: Calculate Load Plan
+    - generic [ref=e175]:
+      - img [ref=e176]
+      - heading "No Load Plan Yet" [level=2] [ref=e178]
+      - paragraph [ref=e179]: Select a trailer type, add order items, then click "Calculate Load Plan".

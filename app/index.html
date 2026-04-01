@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/NAS_Icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#E31837" />
+    <meta name="description" content="North American Steel — Load Planning & Shipping Estimator" />
+    <link rel="apple-touch-icon" href="/NAS_Icon.png" />
+    <title>NAS Shipping Estimator</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Only register service worker in browser mode (not Electron)
+      if ('serviceWorker' in navigator && !window.electronStorage) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').then((reg) => {
+            // Check for updates periodically (every 60 minutes)
+            setInterval(() => reg.update(), 60 * 60 * 1000);
+
+            reg.addEventListener('updatefound', () => {
+              const newWorker = reg.installing;
+              if (newWorker) {
+                newWorker.addEventListener('statechange', () => {
+                  if (newWorker.state === 'activated') {
+                    // Dispatch custom event so App can show update notice
+                    window.dispatchEvent(new CustomEvent('sw-updated'));
+                  }
+                });
+              }
+            });
+          });
+        });
+      }
+    </script>
+  </body>
+</html>

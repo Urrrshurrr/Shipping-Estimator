@@ -1,0 +1,13 @@
+[      52ms] [ERROR] WebSocket connection to 'ws://localhost:5173/?token=aEa2CW_6itNG' failed: Error during WebSocket handshake: Unexpected response code: 400 @ http://localhost:5173/@vite/client:840
+[      67ms] [ERROR] WebSocket connection to 'ws://localhost:5173/?token=aEa2CW_6itNG' failed: Error during WebSocket handshake: Unexpected response code: 400 @ http://localhost:5173/@vite/client:850
+[      69ms] [ERROR] [vite] failed to connect to websocket.
+your current setup:
+  (browser) localhost:5173/ <--[HTTP]--> localhost:5173/ (server)
+  (browser) localhost:5173/ <--[WebSocket (failing)]--> localhost:5173/ (server)
+Check out your Vite / network configuration and https://vite.dev/config/server-options.html#server-hmr . @ http://localhost:5173/@vite/client:860
+[     173ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=be459b0c:14090
+[   17802ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://localhost:5173/node_modules/.vite/deps/three.module-C5Sn_aNr.js?v=be459b0c:1728
+[  115188ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=be459b0c:14090
+[  115260ms] [WARNING] Error while trying to use the following icon from the Manifest: http://localhost:5173/NAS_Icon.png (Resource size is not correct - typo in the Manifest?) @ http://localhost:5173/:0
+[  127957ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://localhost:5173/node_modules/.vite/deps/three.module-C5Sn_aNr.js?v=be459b0c:1728
+[ 2018433ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:5173/@vite/client:968

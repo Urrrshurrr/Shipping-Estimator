@@ -1,0 +1,154 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - img "North American Steel" [ref=e6]
+      - generic [ref=e7]:
+        - heading "NAS Shipping Estimator" [level=1] [ref=e8]
+        - paragraph [ref=e9]: North American Steel — Load Planning & Shipping
+    - generic "Online" [ref=e10]:
+      - img [ref=e11]
+      - generic [ref=e15]: Online
+  - generic [ref=e16]:
+    - button "Order Entry" [ref=e17] [cursor=pointer]:
+      - img [ref=e18]
+      - text: Order Entry
+    - button "Load Plan" [ref=e22] [cursor=pointer]:
+      - img [ref=e23]
+      - text: Load Plan
+    - button "3D Truck View" [ref=e26] [cursor=pointer]:
+      - img [ref=e27]
+      - text: 3D Truck View
+    - generic [ref=e30]:
+      - button "Save Plan" [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+        - text: Save Plan
+      - button "Load Plan" [ref=e36] [cursor=pointer]:
+        - img [ref=e37]
+        - text: Load Plan
+      - button "Reset" [ref=e39] [cursor=pointer]:
+        - img [ref=e40]
+        - text: Reset
+  - generic [ref=e44]:
+    - generic [ref=e45]:
+      - heading "Select Trailer Type" [level=2] [ref=e46]:
+        - img [ref=e47]
+        - text: Select Trailer Type
+      - generic [ref=e52]:
+        - generic [ref=e53] [cursor=pointer]:
+          - generic [ref=e54]: 53' Flatbed
+          - generic [ref=e55]: 53' · 48,000 lbs
+        - generic [ref=e56] [cursor=pointer]:
+          - generic [ref=e57]: 53' Roll-Tite
+          - generic [ref=e58]: 53' · 44,000 lbs
+        - generic [ref=e59] [cursor=pointer]:
+          - generic [ref=e60]: B-Train
+          - generic [ref=e61]: 60' · 90,000 lbs
+        - generic [ref=e62] [cursor=pointer]:
+          - generic [ref=e63]: 53' Closed Van
+          - generic [ref=e64]: 53' · 43,000 lbs
+      - button "Add Custom Trailer" [ref=e65] [cursor=pointer]:
+        - img [ref=e66]
+        - text: Add Custom Trailer
+      - generic [ref=e67] [cursor=pointer]:
+        - checkbox "Auto-select best trailer type for my order" [ref=e68]
+        - text: Auto-select best trailer type for my order
+    - generic [ref=e69]:
+      - generic [ref=e70]:
+        - heading "Order Items 3" [level=2] [ref=e71]:
+          - img [ref=e72]
+          - text: Order Items
+          - generic [ref=e76]: "3"
+        - generic [ref=e77]:
+          - button "Upload Quote" [ref=e78] [cursor=pointer]:
+            - img [ref=e79]
+            - text: Upload Quote
+          - button "Import Excel" [ref=e82] [cursor=pointer]:
+            - img [ref=e83]
+            - text: Import Excel
+      - table [ref=e87]:
+        - rowgroup [ref=e88]:
+          - row "Type Description H/L W D Qty Wt/pc" [ref=e89]:
+            - columnheader "Type" [ref=e90]
+            - columnheader "Description" [ref=e91]
+            - columnheader "H/L" [ref=e92]
+            - columnheader "W" [ref=e93]
+            - columnheader "D" [ref=e94]
+            - columnheader "Qty" [ref=e95]
+            - columnheader "Wt/pc" [ref=e96]
+            - columnheader [ref=e97]
+        - rowgroup [ref=e98]:
+          - row "Frame Structural Frame – C3 x 3.5 240 42 3 50 0" [ref=e99]:
+            - cell "Frame" [ref=e100]:
+              - generic [ref=e101]: Frame
+            - cell "Structural Frame – C3 x 3.5" [ref=e102]:
+              - generic [ref=e103]: Structural Frame – C3 x 3.5
+            - cell "240" [ref=e104]:
+              - spinbutton [ref=e105]: "240"
+            - cell "42" [ref=e106]:
+              - spinbutton [ref=e107]: "42"
+            - cell "3" [ref=e108]:
+              - spinbutton "Auto-calculated" [ref=e109]: "3"
+            - cell "50" [ref=e110]:
+              - spinbutton [ref=e111]: "50"
+            - cell "0" [ref=e112]:
+              - spinbutton [ref=e113]: "0"
+            - cell [ref=e114]:
+              - button "Options" [ref=e115] [cursor=pointer]:
+                - img [ref=e116]
+              - button "Remove" [ref=e119] [cursor=pointer]:
+                - img [ref=e120]
+          - row "Beam Step Beam – 4\" 96 — — 200 0" [ref=e123]:
+            - cell "Beam" [ref=e124]:
+              - generic [ref=e125]: Beam
+            - cell "Step Beam – 4\"" [ref=e126]:
+              - generic [ref=e127]: Step Beam – 4"
+            - cell "96" [ref=e128]:
+              - spinbutton [ref=e129]: "96"
+            - cell "—" [ref=e130]
+            - cell "—" [ref=e131]
+            - cell "200" [ref=e132]:
+              - spinbutton [ref=e133]: "200"
+            - cell "0" [ref=e134]:
+              - spinbutton [ref=e135]: "0"
+            - cell [ref=e136]:
+              - button "Options" [ref=e137] [cursor=pointer]:
+                - img [ref=e138]
+              - button "Remove" [ref=e141] [cursor=pointer]:
+                - img [ref=e142]
+          - row "Acc. No description 96 — — 1 0" [ref=e145]:
+            - cell "Acc." [ref=e146]:
+              - generic [ref=e147]: Acc.
+            - cell "No description" [ref=e148]:
+              - emphasis [ref=e150]: No description
+            - cell "96" [ref=e151]:
+              - spinbutton [ref=e152]: "96"
+            - cell "—" [ref=e153]
+            - cell "—" [ref=e154]
+            - cell "1" [ref=e155]:
+              - spinbutton [ref=e156]: "1"
+            - cell "0" [ref=e157]:
+              - spinbutton [ref=e158]: "0"
+            - cell [ref=e159]:
+              - button "Options" [ref=e160] [cursor=pointer]:
+                - img [ref=e161]
+              - button "Remove" [ref=e164] [cursor=pointer]:
+                - img [ref=e165]
+      - generic [ref=e168]:
+        - button "Frame" [ref=e169] [cursor=pointer]:
+          - img [ref=e170]
+          - text: Frame
+        - button "Beam" [ref=e171] [cursor=pointer]:
+          - img [ref=e172]
+          - text: Beam
+        - button "Accessory" [ref=e173] [cursor=pointer]:
+          - img [ref=e174]
+          - text: Accessory
+      - button "Product Library (0)" [ref=e176] [cursor=pointer]:
+        - img [ref=e177]
+        - text: Product Library (0)
+    - button "Calculate Load Plan" [ref=e180] [cursor=pointer]:
+      - img [ref=e181]
+      - text: Calculate Load Plan
+    - button "View Load Plan" [ref=e184] [cursor=pointer]:
+      - img [ref=e185]
+      - text: View Load Plan

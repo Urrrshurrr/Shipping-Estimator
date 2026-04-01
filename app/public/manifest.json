@@ -1,0 +1,30 @@
+{
+  "name": "NAS Shipping Estimator",
+  "short_name": "NAS Shipping",
+  "description": "North American Steel — Load Planning & Shipping Estimator",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#E31837",
+  "theme_color": "#E31837",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/NAS_Icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/NAS_Icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/NAS_Icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

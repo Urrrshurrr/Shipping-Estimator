@@ -1,0 +1,30 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - img "North American Steel" [ref=e6]
+      - generic [ref=e7]:
+        - heading "NAS Shipping Estimator" [level=1] [ref=e8]
+        - paragraph [ref=e9]: North American Steel — Load Planning & Shipping
+    - generic "Online" [ref=e10]:
+      - img [ref=e11]
+      - generic [ref=e15]: Online
+  - generic [ref=e16]:
+    - button "Order Entry" [ref=e17] [cursor=pointer]:
+      - img [ref=e18]
+      - text: Order Entry
+    - button "Load Plan" [ref=e22] [cursor=pointer]:
+      - img [ref=e23]
+      - text: Load Plan
+    - button "3D Truck View" [active] [ref=e26] [cursor=pointer]:
+      - img [ref=e27]
+      - text: 3D Truck View
+    - generic [ref=e30]:
+      - button "Save Plan" [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+        - text: Save Plan
+      - button "Load Plan" [ref=e36] [cursor=pointer]:
+        - img [ref=e37]
+        - text: Load Plan
+      - button "Reset" [ref=e39] [cursor=pointer]:
+        - img [ref=e40]
+        - text: Reset
