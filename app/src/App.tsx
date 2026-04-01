@@ -369,29 +369,32 @@ function App() {
         {/* Tab 2: 3D Truck View */}
         {activeTab === 2 && loadPlan && currentTruckWithPositions && (
           <div className="tab-panel tab-panel-3d">
-            {loadPlan.trucks.length > 1 && (
-              <div className="tab-bar" style={{ marginBottom: 8 }}>
-                {loadPlan.trucks.map((_t, i) => (
-                  <div
-                    key={i}
-                    className={`tab ${i === viewingTruckIdx ? 'active' : ''}`}
-                    onClick={() => { setViewingTruckIdx(i); setSelectedBundleId(null); }}
-                  >
-                    Truck #{i + 1}
-                  </div>
-                ))}
+            <div className="viewer-3d-layout">
+              {loadPlan.trucks.length > 1 && (
+                <div className="truck-sidebar">
+                  <div className="truck-sidebar-header">Trucks</div>
+                  {loadPlan.trucks.map((_t, i) => (
+                    <div
+                      key={i}
+                      className={`truck-sidebar-item ${i === viewingTruckIdx ? 'active' : ''}`}
+                      onClick={() => { setViewingTruckIdx(i); setSelectedBundleId(null); }}
+                    >
+                      Truck #{i + 1}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="viewer-3d-fullsize">
+                <TruckViewer3D
+                  truck={currentTruckWithPositions}
+                  selectedBundleId={selectedBundleId}
+                  onBundleSelect={handleBundleSelect}
+                  onBundleMove={handleBundleMove}
+                  allTrucks={loadPlan.trucks}
+                  currentTruckIndex={viewingTruckIdx}
+                  onMoveBundleToTruck={handleMoveBundleToTruck}
+                />
               </div>
-            )}
-            <div className="viewer-3d-fullsize">
-              <TruckViewer3D
-                truck={currentTruckWithPositions}
-                selectedBundleId={selectedBundleId}
-                onBundleSelect={handleBundleSelect}
-                onBundleMove={handleBundleMove}
-                allTrucks={loadPlan.trucks}
-                currentTruckIndex={viewingTruckIdx}
-                onMoveBundleToTruck={handleMoveBundleToTruck}
-              />
             </div>
           </div>
         )}

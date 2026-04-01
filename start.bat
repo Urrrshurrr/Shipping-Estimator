@@ -8,7 +8,7 @@ call npm install
 
 echo.
 echo Starting Electron app...
-call npm run dev
+call npm run dev 2>nul
 
 echo.
 echo Application closed.

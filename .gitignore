@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+app/dist/
+app/dist-ssr/
+app/dist-electron/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment / local config
+*.local
+.env
+.env.*
+
+# Editor / IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python virtual environment
+.venv/
+
+# AL packages
+.alpackages/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Snapshots
+.snapshots/
+
+# Lock files (optional — remove this line if you want to track package-lock.json)
+# package-lock.json
