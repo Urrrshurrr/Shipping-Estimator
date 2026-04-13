@@ -408,17 +408,16 @@ function BundlesScene({
       if (!draggingRef.current) return;
       const drag = draggingRef.current;
       const finalPos = dragPosRef.current;
+
       if (finalPos && onBundleMove) {
-        // Clamp drop position to truck bounds
         const clampedX = Math.max(0, Math.min(finalPos.x, totalDeckLengthIn - drag.bundle.lengthIn));
         const clampedZ = Math.max(0, Math.min(finalPos.z, maxWidth - drag.bundle.widthIn));
         const clampedY = Math.max(0, Math.min(finalPos.y, maxHeight - drag.bundle.heightIn));
 
-        // Skip processing for negligible movement (prevents accidental repositioning on click)
-        const dx = Math.abs(clampedX - drag.startPos.x);
-        const dy = Math.abs(clampedY - drag.startPos.y);
-        const dz = Math.abs(clampedZ - drag.startPos.z);
-        if (dx + dy + dz < 2) {
+        const adx = Math.abs(clampedX - drag.startPos.x);
+        const ady = Math.abs(clampedY - drag.startPos.y);
+        const adz = Math.abs(clampedZ - drag.startPos.z);
+        if (adx + ady + adz < 2) {
           draggingRef.current = null;
           dragPosRef.current = null;
           shiftHeldRef.current = false;
@@ -426,387 +425,230 @@ function BundlesScene({
           return;
         }
 
-        // Build a mutable snapshot of all positions
-        const posSnapshot = new Map<string, { x: number; y: number; z: number; bundle: PackedBundle }>();
+        // Build mutable snapshot of all bundle positions
+        const snap = new Map<string, { x: number; y: number; z: number; bundle: PackedBundle }>();
         for (const p of positions) {
-          posSnapshot.set(p.bundle.id, { x: p.x, y: p.y, z: p.z, bundle: p.bundle });
+          snap.set(p.bundle.id, { x: p.x, y: p.y, z: p.z, bundle: p.bundle });
         }
 
-        const movedIds = new Set<string>([drag.bundleId]);
+        const eps = 0.5;
+        const isVerticalMove = ady > 1 && ady > (adx + adz);
 
-        // Determine move type based on position delta
-        const isVerticalMove = dy > 1 && dy > dx + dz;
+        // Helper: check if two bounding boxes overlap in 3D
+        const overlaps3D = (
+          ax: number, ay: number, az: number, aBundle: PackedBundle,
+          bx: number, by: number, bz: number, bBundle: PackedBundle,
+        ) => {
+          return ax + eps < bx + bBundle.lengthIn && ax + aBundle.lengthIn > bx + eps
+              && ay + eps < by + bBundle.heightIn && ay + aBundle.heightIn > by + eps
+              && az + eps < bz + bBundle.widthIn && az + aBundle.widthIn > bz + eps;
+        };
 
-        // Find all bundles that overlap in X/Y/Z with the target position
-        const overlappingIds = new Set<string>();
-        for (const p of positions) {
-          if (p.bundle.id === drag.bundleId) continue;
-          const xOvlp = clampedX < p.x + p.bundle.lengthIn && clampedX + drag.bundle.lengthIn > p.x;
-          const zOvlp = clampedZ < p.z + p.bundle.widthIn && clampedZ + drag.bundle.widthIn > p.z;
-          const yOvlp = clampedY < p.y + p.bundle.heightIn && clampedY + drag.bundle.heightIn > p.y;
-          if (xOvlp && zOvlp && yOvlp) overlappingIds.add(p.bundle.id);
+        // Helper: compute gravity Y for a given bundle at (x, z), ignoring certain IDs
+        const computeGravityY = (
+          x: number, z: number, bundle: PackedBundle, ignoreIds: Set<string>,
+        ) => {
+          let gY = 0;
+          for (const [id, o] of snap) {
+            if (ignoreIds.has(id)) continue;
+            if (x + eps < o.x + o.bundle.lengthIn && x + bundle.lengthIn > o.x + eps
+             && z + eps < o.z + o.bundle.widthIn && z + bundle.widthIn > o.z + eps) {
+              const top = o.y + o.bundle.heightIn + DUNNAGE_HEIGHT_IN;
+              if (top > gY) gY = top;
+            }
+          }
+          return Math.min(gY, maxHeight - bundle.heightIn);
+        };
+
+        // Find bundles that the dragged bundle would overlap at the drop position
+        const findOverlapping = (tx: number, ty: number, tz: number) => {
+          const result: string[] = [];
+          for (const [id, o] of snap) {
+            if (id === drag.bundleId) continue;
+            if (overlaps3D(tx, ty, tz, drag.bundle, o.x, o.y, o.z, o.bundle)) {
+              result.push(id);
+            }
+          }
+          return result;
+        };
+
+        // Determine the target position for the dragged bundle
+        let targetX = clampedX;
+        let targetZ = clampedZ;
+        let targetY = clampedY;
+
+        if (!isVerticalMove) {
+          // Horizontal: compute gravity Y at drop XZ
+          targetY = computeGravityY(targetX, targetZ, drag.bundle, new Set([drag.bundleId]));
         }
 
-        if (isVerticalMove && overlappingIds.size > 0) {
-          // ─── VERTICAL RESTACK ──────────────────────────────────
-          // Skip gravity pre-settling — go directly to column restack
-          // so both upward and downward drags work correctly.
-          const columnIds = new Set<string>([drag.bundleId, ...overlappingIds]);
+        // Find which bundles we'd collide with
+        const overlapping = findOverlapping(targetX, targetY, targetZ);
 
-          // Gather non-dragged column members sorted by Y
-          const others: Array<{ id: string; y: number; bundle: PackedBundle; x: number; z: number }> = [];
+        if (overlapping.length === 0) {
+          // ── FREE SPACE: just place the bundle ──
+          snap.set(drag.bundleId, { x: targetX, y: targetY, z: targetZ, bundle: drag.bundle });
+          onBundleMove(drag.bundleId, { x: targetX, y: targetY, z: targetZ });
+
+        } else if (isVerticalMove) {
+          // ── VERTICAL RESTACK ──
+          // Gather all bundles in the same column (overlapping XZ footprint)
+          const columnIds = new Set<string>([drag.bundleId]);
+          for (const [id, o] of snap) {
+            if (id === drag.bundleId) continue;
+            const xO = drag.startPos.x + eps < o.x + o.bundle.lengthIn && drag.startPos.x + drag.bundle.lengthIn > o.x + eps;
+            const zO = drag.startPos.z + eps < o.z + o.bundle.widthIn && drag.startPos.z + drag.bundle.widthIn > o.z + eps;
+            if (xO && zO) columnIds.add(id);
+          }
+
+          // Sort column members by Y (excluding dragged bundle)
+          const others: Array<{ id: string; entry: typeof snap extends Map<string, infer V> ? V : never }> = [];
           for (const id of columnIds) {
             if (id === drag.bundleId) continue;
-            const bp = posSnapshot.get(id)!;
-            others.push({ id, y: bp.y, bundle: bp.bundle, x: bp.x, z: bp.z });
+            others.push({ id, entry: snap.get(id)! });
           }
-          others.sort((a, b) => a.y - b.y);
+          others.sort((a, b) => a.entry.y - b.entry.y);
 
-          // Determine insertion index based on drop Y (direction-aware tie-breaking)
+          // Determine insertion index based on where the user dropped
           const movingDown = clampedY < drag.startPos.y;
           let insertIdx = others.length;
           for (let i = 0; i < others.length; i++) {
-            const midY = others[i].y + others[i].bundle.heightIn / 2;
-            if (clampedY < midY || (Math.abs(clampedY - midY) < 2 && movingDown)) { insertIdx = i; break; }
+            const midY = others[i].entry.y + others[i].entry.bundle.heightIn / 2;
+            if (clampedY < midY || (Math.abs(clampedY - midY) < 2 && movingDown)) {
+              insertIdx = i;
+              break;
+            }
           }
 
-          const dragItem = { id: drag.bundleId, y: clampedY, bundle: drag.bundle, x: clampedX, z: clampedZ };
-          const newOrder = [...others];
-          newOrder.splice(insertIdx, 0, dragItem);
+          // Build new order with dragged bundle inserted
+          const ordered = others.map(o => o.id);
+          ordered.splice(insertIdx, 0, drag.bundleId);
 
-          // Find base Y from non-column bundles
+          // Find base Y (top of non-column bundles under this footprint)
           let baseY = 0;
-          for (const [id, bp] of posSnapshot) {
+          for (const [id, o] of snap) {
             if (columnIds.has(id)) continue;
-            const bx = newOrder[0].x;
-            const bz = newOrder[0].z;
-            const xOvlp = bx < bp.x + bp.bundle.lengthIn && bx + newOrder[0].bundle.lengthIn > bp.x;
-            const zOvlp = bz < bp.z + bp.bundle.widthIn && bz + newOrder[0].bundle.widthIn > bp.z;
-            if (xOvlp && zOvlp) {
-              const top = bp.y + bp.bundle.heightIn + DUNNAGE_HEIGHT_IN;
+            const first = snap.get(ordered[0])!;
+            const xO = first.x + eps < o.x + o.bundle.lengthIn && first.x + first.bundle.lengthIn > o.x + eps;
+            const zO = first.z + eps < o.z + o.bundle.widthIn && first.z + first.bundle.widthIn > o.z + eps;
+            if (xO && zO) {
+              const top = o.y + o.bundle.heightIn + DUNNAGE_HEIGHT_IN;
               if (top > baseY) baseY = top;
             }
           }
 
-          // Check if the entire restack fits within the truck height
-          let totalStackHeight = baseY;
-          for (const item of newOrder) totalStackHeight += item.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-          totalStackHeight -= DUNNAGE_HEIGHT_IN; // no dunnage above top bundle
+          // Check total height fits
+          let totalH = baseY;
+          for (const id of ordered) {
+            totalH += snap.get(id)!.bundle.heightIn + DUNNAGE_HEIGHT_IN;
+          }
+          totalH -= DUNNAGE_HEIGHT_IN;
 
-          if (totalStackHeight <= maxHeight) {
-            // Restack from baseY upward
-            let currentY = baseY;
-            for (const item of newOrder) {
-              posSnapshot.set(item.id, { x: item.x, y: currentY, z: item.z, bundle: item.bundle });
-              onBundleMove(item.id, { x: item.x, y: currentY, z: item.z });
-              movedIds.add(item.id);
-              currentY += item.bundle.heightIn + DUNNAGE_HEIGHT_IN;
+          if (totalH <= maxHeight) {
+            let curY = baseY;
+            for (const id of ordered) {
+              const entry = snap.get(id)!;
+              entry.y = curY;
+              onBundleMove(id, { x: entry.x, y: curY, z: entry.z });
+              curY += entry.bundle.heightIn + DUNNAGE_HEIGHT_IN;
             }
           }
-          // If exceeds height, reject — bundle snaps back to start
-
-        } else if (!isVerticalMove && overlappingIds.size > 0) {
-          // ─── HORIZONTAL REORDER ────────────────────────────────
-          // Determine dominant horizontal axis
-          const isZDominant = dz >= dx;
-          const Y_TOLERANCE = DUNNAGE_HEIGHT_IN + 1;
-
-          // Update dragged bundle position in snapshot (preserve original Y tier)
-          posSnapshot.set(drag.bundleId, { x: clampedX, y: drag.startPos.y, z: clampedZ, bundle: drag.bundle });
-
-          // Find row/group members at the same Y tier
-          const groupMembers: Array<{ id: string; bundle: PackedBundle }> = [{ id: drag.bundleId, bundle: drag.bundle }];
-          for (const p of positions) {
-            if (p.bundle.id === drag.bundleId) continue;
-            const sameTier = Math.abs(p.y - drag.startPos.y) < Y_TOLERANCE;
-            if (!sameTier) continue;
-            if (isZDominant) {
-              // Z-dominant: group by SIGNIFICANT X overlap (>=50% of smaller length)
-              const ovlStart = Math.max(drag.startPos.x, p.x);
-              const ovlEnd = Math.min(drag.startPos.x + drag.bundle.lengthIn, p.x + p.bundle.lengthIn);
-              const ovlAmt = Math.max(0, ovlEnd - ovlStart);
-              const minLen = Math.min(drag.bundle.lengthIn, p.bundle.lengthIn);
-              if (minLen > 0 && ovlAmt >= minLen * 0.5) groupMembers.push({ id: p.bundle.id, bundle: p.bundle });
-            } else {
-              // X-dominant: group by SIGNIFICANT Z overlap (>=50% of smaller width)
-              const ovlStart = Math.max(drag.startPos.z, p.z);
-              const ovlEnd = Math.min(drag.startPos.z + drag.bundle.widthIn, p.z + p.bundle.widthIn);
-              const ovlAmt = Math.max(0, ovlEnd - ovlStart);
-              const minWid = Math.min(drag.bundle.widthIn, p.bundle.widthIn);
-              if (minWid > 0 && ovlAmt >= minWid * 0.5) groupMembers.push({ id: p.bundle.id, bundle: p.bundle });
-            }
-          }
-
-          let accepted = false;
-
-          if (groupMembers.length > 1) {
-            const others = groupMembers.filter(m => m.id !== drag.bundleId);
-
-            if (isZDominant) {
-              // ── Z-direction reorder (side-to-side) ──
-              others.sort((a, b) => {
-                const pa = posSnapshot.get(a.id)!;
-                const pb = posSnapshot.get(b.id)!;
-                return pa.z - pb.z;
-              });
-              const dragCenterZ = clampedZ + drag.bundle.widthIn / 2;
-              const movingLeft = clampedZ < drag.startPos.z;
-              let insertIdx = others.length;
-              for (let i = 0; i < others.length; i++) {
-                const pos = posSnapshot.get(others[i].id)!;
-                const midZ = pos.z + others[i].bundle.widthIn / 2;
-                if (dragCenterZ < midZ || (Math.abs(dragCenterZ - midZ) < 2 && movingLeft)) { insertIdx = i; break; }
-              }
-              const ordered = [...others];
-              ordered.splice(insertIdx, 0, groupMembers[0]);
-
-              // Check total width fits
-              const totalW = ordered.reduce((sum, m) => sum + m.bundle.widthIn, 0);
-              if (totalW <= maxWidth) {
-                // Pack side by side from Z=0
-                let currentZ = 0;
-                for (const item of ordered) {
-                  const entry = posSnapshot.get(item.id)!;
-                  posSnapshot.set(item.id, { ...entry, z: currentZ });
-                  onBundleMove(item.id, { x: entry.x, y: entry.y, z: currentZ });
-                  movedIds.add(item.id);
-                  currentZ += item.bundle.widthIn;
-                }
-
-                // Carry stacked bundles that were resting on reordered bundles
-                for (const item of ordered) {
-                  const origPos = positions.find(p => p.bundle.id === item.id);
-                  if (!origPos) continue;
-                  const newEntry = posSnapshot.get(item.id)!;
-                  const deltaZ = newEntry.z - origPos.z;
-                  if (Math.abs(deltaZ) < 0.01) continue;
-                  for (const p of positions) {
-                    if (movedIds.has(p.bundle.id)) continue;
-                    if (p.y <= origPos.y) continue;
-                    const xO = origPos.x < p.x + p.bundle.lengthIn && origPos.x + origPos.bundle.lengthIn > p.x;
-                    const zO = origPos.z < p.z + p.bundle.widthIn && origPos.z + origPos.bundle.widthIn > p.z;
-                    if (xO && zO) {
-                      const se = posSnapshot.get(p.bundle.id)!;
-                      const cz = Math.max(0, Math.min(se.z + deltaZ, maxWidth - se.bundle.widthIn));
-                      posSnapshot.set(p.bundle.id, { ...se, z: cz });
-                      onBundleMove(p.bundle.id, { x: se.x, y: se.y, z: cz });
-                      movedIds.add(p.bundle.id);
-                    }
-                  }
-                }
-                accepted = true;
-              }
-            } else {
-              // ── X-direction reorder (front-to-back) ──
-              others.sort((a, b) => {
-                const pa = posSnapshot.get(a.id)!;
-                const pb = posSnapshot.get(b.id)!;
-                return pa.x - pb.x;
-              });
-              const dragCenterX = clampedX + drag.bundle.lengthIn / 2;
-              const movingBack = clampedX < drag.startPos.x;
-              let insertIdx = others.length;
-              for (let i = 0; i < others.length; i++) {
-                const pos = posSnapshot.get(others[i].id)!;
-                const midX = pos.x + others[i].bundle.lengthIn / 2;
-                if (dragCenterX < midX || (Math.abs(dragCenterX - midX) < 2 && movingBack)) { insertIdx = i; break; }
-              }
-              const ordered = [...others];
-              ordered.splice(insertIdx, 0, groupMembers[0]);
-
-              // Pack from the group's minimum X (including dragged bundle's ORIGINAL position)
-              const groupOrigMinX = Math.min(drag.startPos.x, ...others.map(m => {
-                const orig = positions.find(p => p.bundle.id === m.id);
-                return orig ? orig.x : 0;
-              }));
-              const totalL = ordered.reduce((sum, m) => sum + m.bundle.lengthIn, 0);
-              // Try packing from original group start; if that overflows, fall back
-              let packStartX = groupOrigMinX;
-              if (packStartX + totalL > totalDeckLengthIn) packStartX = Math.max(0, totalDeckLengthIn - totalL);
-              if (totalL <= totalDeckLengthIn) {
-                let currentX = packStartX;
-                for (const item of ordered) {
-                  const entry = posSnapshot.get(item.id)!;
-                  posSnapshot.set(item.id, { ...entry, x: currentX });
-                  onBundleMove(item.id, { x: currentX, y: entry.y, z: entry.z });
-                  movedIds.add(item.id);
-                  currentX += item.bundle.lengthIn;
-                }
-
-                // Carry stacked bundles that were resting on reordered bundles
-                for (const item of ordered) {
-                  const origPos = positions.find(p => p.bundle.id === item.id);
-                  if (!origPos) continue;
-                  const newEntry = posSnapshot.get(item.id)!;
-                  const deltaX = newEntry.x - origPos.x;
-                  if (Math.abs(deltaX) < 0.01) continue;
-                  for (const p of positions) {
-                    if (movedIds.has(p.bundle.id)) continue;
-                    if (p.y <= origPos.y) continue;
-                    const xO = origPos.x < p.x + p.bundle.lengthIn && origPos.x + origPos.bundle.lengthIn > p.x;
-                    const zO = origPos.z < p.z + p.bundle.widthIn && origPos.z + origPos.bundle.widthIn > p.z;
-                    if (xO && zO) {
-                      const se = posSnapshot.get(p.bundle.id)!;
-                      const cx = Math.max(0, Math.min(se.x + deltaX, totalDeckLengthIn - se.bundle.lengthIn));
-                      posSnapshot.set(p.bundle.id, { ...se, x: cx });
-                      onBundleMove(p.bundle.id, { x: cx, y: se.y, z: se.z });
-                      movedIds.add(p.bundle.id);
-                    }
-                  }
-                }
-                accepted = true;
-              }
-            }
-          }
-
-          if (!accepted) {
-            // Reorder failed — swap the single most-overlapping same-tier bundle
-            const Y_SWAP_TOLERANCE = DUNNAGE_HEIGHT_IN + 2;
-
-            // Find the single most overlapping same-tier bundle
-            let bestSwapId: string | null = null;
-            let bestOverlapArea = 0;
-            for (const ovId of overlappingIds) {
-              const ovPos = posSnapshot.get(ovId);
-              if (!ovPos || Math.abs(ovPos.y - drag.startPos.y) >= Y_SWAP_TOLERANCE) continue;
-              const xOvlp = Math.max(0, Math.min(clampedX + drag.bundle.lengthIn, ovPos.x + ovPos.bundle.lengthIn) - Math.max(clampedX, ovPos.x));
-              const zOvlp = Math.max(0, Math.min(clampedZ + drag.bundle.widthIn, ovPos.z + ovPos.bundle.widthIn) - Math.max(clampedZ, ovPos.z));
-              const area = xOvlp * zOvlp;
-              if (area > bestOverlapArea) { bestOverlapArea = area; bestSwapId = ovId; }
-            }
-
-            if (bestSwapId) {
-              const displacedEntry = posSnapshot.get(bestSwapId)!;
-
-              // Compute target position for displaced bundle (dragged bundle's vacated spot)
-              const targetX = Math.max(0, Math.min(drag.startPos.x, totalDeckLengthIn - displacedEntry.bundle.lengthIn));
-              const targetZ = Math.max(0, Math.min(drag.startPos.z, maxWidth - displacedEntry.bundle.widthIn));
-
-              // Compute gravity Y at the vacated position (ignoring both moved bundles)
-              let displacedGravityY = 0;
-              for (const [id, bp] of posSnapshot) {
-                if (id === drag.bundleId || id === bestSwapId) continue;
-                const xO = targetX < bp.x + bp.bundle.lengthIn && targetX + displacedEntry.bundle.lengthIn > bp.x;
-                const zO = targetZ < bp.z + bp.bundle.widthIn && targetZ + displacedEntry.bundle.widthIn > bp.z;
-                if (xO && zO) {
-                  const top = bp.y + bp.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-                  if (top > displacedGravityY) displacedGravityY = top;
-                }
-              }
-              displacedGravityY = Math.min(displacedGravityY, maxHeight - displacedEntry.bundle.heightIn);
-
-              posSnapshot.set(bestSwapId, { x: targetX, y: displacedGravityY, z: targetZ, bundle: displacedEntry.bundle });
-              onBundleMove(bestSwapId, { x: targetX, y: displacedGravityY, z: targetZ });
-              movedIds.add(bestSwapId);
-            }
-
-            // Place dragged bundle at target with gravity
-            let gravityY = 0;
-            for (const [id, bp] of posSnapshot) {
-              if (id === drag.bundleId) continue;
-              const xO = clampedX < bp.x + bp.bundle.lengthIn && clampedX + drag.bundle.lengthIn > bp.x;
-              const zO = clampedZ < bp.z + bp.bundle.widthIn && clampedZ + drag.bundle.widthIn > bp.z;
-              if (xO && zO) {
-                const top = bp.y + bp.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-                if (top > gravityY) gravityY = top;
-              }
-            }
-            gravityY = Math.min(gravityY, maxHeight - drag.bundle.heightIn);
-            posSnapshot.set(drag.bundleId, { x: clampedX, y: gravityY, z: clampedZ, bundle: drag.bundle });
-            onBundleMove(drag.bundleId, { x: clampedX, y: gravityY, z: clampedZ });
-          }
+          // If doesn't fit, bundle snaps back (no changes committed for it)
 
         } else {
-          // ─── SIMPLE GRAVITY PLACEMENT (no overlaps or vertical with no column) ─
-          let gravityY = 0;
-          for (const [id, bp] of posSnapshot) {
-            if (id === drag.bundleId) continue;
-            const xO = clampedX < bp.x + bp.bundle.lengthIn && clampedX + drag.bundle.lengthIn > bp.x;
-            const zO = clampedZ < bp.z + bp.bundle.widthIn && clampedZ + drag.bundle.widthIn > bp.z;
-            if (xO && zO) {
-              const top = bp.y + bp.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-              if (top > gravityY) gravityY = top;
-            }
+          // ── HORIZONTAL SWAP ──
+          // Find the single most-overlapping bundle to swap with
+          let bestSwapId: string | null = null;
+          let bestArea = 0;
+          for (const ovId of overlapping) {
+            const o = snap.get(ovId)!;
+            const xOvlp = Math.max(0, Math.min(targetX + drag.bundle.lengthIn, o.x + o.bundle.lengthIn) - Math.max(targetX, o.x));
+            const zOvlp = Math.max(0, Math.min(targetZ + drag.bundle.widthIn, o.z + o.bundle.widthIn) - Math.max(targetZ, o.z));
+            const area = xOvlp * zOvlp;
+            if (area > bestArea) { bestArea = area; bestSwapId = ovId; }
           }
-          gravityY = Math.min(gravityY, maxHeight - drag.bundle.heightIn);
-          posSnapshot.set(drag.bundleId, { x: clampedX, y: gravityY, z: clampedZ, bundle: drag.bundle });
-          onBundleMove(drag.bundleId, { x: clampedX, y: gravityY, z: clampedZ });
-        }
 
-        // ─── 3D OVERLAP RESOLUTION: push overlapping bundles apart vertically ─
-        for (let iter = 0; iter < 30; iter++) {
-          let overlapFound = false;
-          const ovlEntries = [...posSnapshot.entries()];
-          for (let i = 0; i < ovlEntries.length; i++) {
-            const [idA, a] = ovlEntries[i];
-            for (let j = i + 1; j < ovlEntries.length; j++) {
-              const [idB, b] = ovlEntries[j];
-              const xO = a.x + 0.5 < b.x + b.bundle.lengthIn && a.x + a.bundle.lengthIn > b.x + 0.5;
-              const zO = a.z + 0.5 < b.z + b.bundle.widthIn && a.z + a.bundle.widthIn > b.z + 0.5;
-              const yO = a.y + 0.5 < b.y + b.bundle.heightIn && a.y + a.bundle.heightIn > b.y + 0.5;
-              if (!(xO && zO && yO)) continue;
-              overlapFound = true;
-              // Push the higher bundle up; at same Y keep the dragged bundle in place
-              let lower, upper;
-              if (Math.abs(a.y - b.y) < 0.5) {
-                if (idA === drag.bundleId) { lower = a; upper = b; }
-                else if (idB === drag.bundleId) { lower = b; upper = a; }
-                else { lower = a; upper = b; }
+          if (bestSwapId) {
+            const swapEntry = snap.get(bestSwapId)!;
+            const dragEntry = snap.get(drag.bundleId)!;
+
+            // Save original positions of both bundles
+            const origDragX = dragEntry.x, origDragY = dragEntry.y, origDragZ = dragEntry.z;
+            const origSwapX = swapEntry.x, origSwapY = swapEntry.y, origSwapZ = swapEntry.z;
+
+            // Move swap bundle to dragged bundle's original position, with gravity
+            const swapNewX = Math.max(0, Math.min(origDragX, totalDeckLengthIn - swapEntry.bundle.lengthIn));
+            const swapNewZ = Math.max(0, Math.min(origDragZ, maxWidth - swapEntry.bundle.widthIn));
+            // Temporarily remove both bundles from snap for gravity calc
+            const bothIds = new Set([drag.bundleId, bestSwapId]);
+            const swapNewY = computeGravityY(swapNewX, swapNewZ, swapEntry.bundle, bothIds);
+
+            // Move dragged bundle to target position, with gravity (excluding both)
+            const dragNewY = computeGravityY(targetX, targetZ, drag.bundle, bothIds);
+
+            // Apply both positions
+            swapEntry.x = swapNewX; swapEntry.y = swapNewY; swapEntry.z = swapNewZ;
+            dragEntry.x = targetX; dragEntry.y = dragNewY; dragEntry.z = targetZ;
+
+            // Check for remaining overlap between the TWO swapped bundles
+            if (overlaps3D(dragEntry.x, dragEntry.y, dragEntry.z, drag.bundle,
+                           swapEntry.x, swapEntry.y, swapEntry.z, swapEntry.bundle)) {
+              // They still overlap (same footprint) — stack the higher one
+              if (dragNewY <= swapNewY) {
+                swapEntry.y = dragEntry.y + drag.bundle.heightIn + DUNNAGE_HEIGHT_IN;
               } else {
-                [lower, upper] = a.y < b.y ? [a, b] : [b, a];
-              }
-              const reqY = lower.y + lower.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-              if (upper.y < reqY) {
-                // Clamp to truck height — never push bundles above maxHeight
-                upper.y = Math.min(reqY, maxHeight - upper.bundle.heightIn);
+                dragEntry.y = swapEntry.y + swapEntry.bundle.heightIn + DUNNAGE_HEIGHT_IN;
               }
             }
+
+            // Validate both fit in truck
+            if (swapEntry.y + swapEntry.bundle.heightIn <= maxHeight + 0.5
+             && dragEntry.y + drag.bundle.heightIn <= maxHeight + 0.5) {
+              onBundleMove(bestSwapId, { x: swapEntry.x, y: swapEntry.y, z: swapEntry.z });
+              onBundleMove(drag.bundleId, { x: dragEntry.x, y: dragEntry.y, z: dragEntry.z });
+            } else {
+              // Revert — doesn't fit
+              swapEntry.x = origSwapX; swapEntry.y = origSwapY; swapEntry.z = origSwapZ;
+              dragEntry.x = origDragX; dragEntry.y = origDragY; dragEntry.z = origDragZ;
+            }
           }
-          if (!overlapFound) break;
         }
 
-        // ─── CASCADING GRAVITY: settle all bundles that lost support ─
-        let changed = true;
-        while (changed) {
-          changed = false;
-          const sortedByY = [...posSnapshot.values()].sort((a, b) => a.y - b.y);
-          for (const bp of sortedByY) {
+        // ── CASCADING GRAVITY: settle any bundles that lost support ──
+        let gravChanged = true;
+        let gravIters = 0;
+        while (gravChanged && gravIters < 50) {
+          gravChanged = false;
+          gravIters++;
+          const sorted = [...snap.entries()].sort((a, b) => a[1].y - b[1].y);
+          for (const [bId, bp] of sorted) {
             if (bp.y <= 0) continue;
             let highestBelow = 0;
-            for (const other of posSnapshot.values()) {
-              if (other.bundle.id === bp.bundle.id) continue;
-              const xOvlp = bp.x < other.x + other.bundle.lengthIn && bp.x + bp.bundle.lengthIn > other.x;
-              const zOvlp = bp.z < other.z + other.bundle.widthIn && bp.z + bp.bundle.widthIn > other.z;
-              if (xOvlp && zOvlp) {
+            for (const [otherId, other] of snap) {
+              if (otherId === bId) continue;
+              const xO = bp.x + eps < other.x + other.bundle.lengthIn && bp.x + bp.bundle.lengthIn > other.x + eps;
+              const zO = bp.z + eps < other.z + other.bundle.widthIn && bp.z + bp.bundle.widthIn > other.z + eps;
+              if (xO && zO) {
                 const top = other.y + other.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-                if (top <= bp.y + 0.5 && top > highestBelow) {
-                  highestBelow = top;
-                }
+                if (top <= bp.y + eps && top > highestBelow) highestBelow = top;
               }
             }
             if (highestBelow < bp.y - 0.5) {
               bp.y = highestBelow;
-              changed = true;
+              gravChanged = true;
             }
           }
         }
 
-        // ─── FINAL BOUNDS ENFORCEMENT: clamp ALL bundles to truck dimensions ─
-        for (const [id, bp] of posSnapshot) {
-          bp.x = Math.max(0, Math.min(bp.x, totalDeckLengthIn - bp.bundle.lengthIn));
-          bp.z = Math.max(0, Math.min(bp.z, maxWidth - bp.bundle.widthIn));
-          bp.y = Math.max(0, Math.min(bp.y, maxHeight - bp.bundle.heightIn));
-        }
-
-        // Emit final position updates for ALL bundles whose position changed
-        // (re-emit even for previously moved bundles since overlap resolution may have adjusted them)
-        for (const [id, bp] of posSnapshot) {
+        // Emit final updates for any gravity-adjusted bundles
+        for (const [id, bp] of snap) {
           const orig = positions.find(p => p.bundle.id === id);
           if (orig && (Math.abs(orig.y - bp.y) > 0.01 || Math.abs(orig.x - bp.x) > 0.01 || Math.abs(orig.z - bp.z) > 0.01)) {
             onBundleMove(id, { x: bp.x, y: bp.y, z: bp.z });
           }
         }
       }
+
       draggingRef.current = null;
       dragPosRef.current = null;
       shiftHeldRef.current = false;

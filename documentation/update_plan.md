@@ -1,0 +1,66 @@
+## Plan: Shipping Estimator Audit Remediation
+
+Audit outcome: the project compiles cleanly, but the highest-risk problems are business-rule drift, non-authoritative 3D edits, weak persistence guarantees, and documentation that no longer matches the Electron-first product. Recommended approach: reconcile the packaging/strapping source of truth first, then fix the state model so manual layout changes become part of the saved/exported plan, then tighten the algorithm, imports, exports, and docs behind a regression harness.
+
+**Findings**
+1. Business rules are contradictory across the code and docs. `app/src/data.ts` uses smaller frame bundle counts (`piecesPerBundle` at lines 102, 108, 114, 120, 131, 137, 143) than `documentation/Technical Reference.md` and `documentation/Analysis and Plan.md`, and `app/src/algorithm.ts` uses a `<=108` strapping threshold at line 1007 while the authored analysis says `<=96`.
+2. Manual 3D layout edits are not part of the durable load-plan model. `app/src/App.tsx` keeps `bundlePositions` in ephemeral UI state (lines 26, 139-140, 166, 199), `app/src/storage.ts` omits them from `SavedPlan` and `AutoSaveState` (lines 143-150, 194-200), and exports/results operate on `loadPlan` trucks rather than the view-only override truck (`app/src/App.tsx` lines 94, 111, 389; `app/src/components/LoadPlanResults.tsx` lines 171, 205-206; `app/src/excelExport.ts` lines 100-101, 138; `app/src/pdfExport.ts` lines 208-210, 609-610, 825-826).
+3. Electron persistence is optimistic and silent. `app/src/storage.ts` writes and removes with fire-and-forget IPC (lines 45, 58), while `app/src/App.tsx` auto-saves on every state change (lines 49-57) without debounce, acknowledgement, or user-visible failure handling.
+4. Packing and visualization do not enforce the same constraints. `app/src/algorithm.ts` can open a new row without a width guard (lines 512, 519), only prefers rather than requires same-category stacking (line 485), and computes B-train CG percentage against the combined deck length. `app/src/components/TruckViewer3D.tsx` uses a separate placement engine (line 125 onward) and drag gravity logic (`computeGravityY` around line 448) that does not honor the same stacking/weight rules.
+5. Import and entry validation are too weak for a planning tool. `app/src/App.tsx` imports parsed quote items directly into the order (line 126), `app/src/quoteParser.ts` hardcodes the PDF worker path (line 17), overwrites customer/ship-to naming in header extraction (line 312), and `app/src/components/OrderForm.tsx` plus `app/src/components/GenericExcelImport.tsx` accept sparse dimensions and limited field inference.
+6. Export and save UX have correctness gaps. `app/src/excelExport.ts` builds filenames directly from the quote number (line 161), `app/src/pdfExport.ts` silently drops logo/canvas failures, `app/src/components/SavedPlans.tsx` always creates a new timestamp-based plan id (line 45), and the current app does not warn before destructive reset/load actions.
+7. Documentation is materially stale. `app/README.md` is still the default Vite template, `documentation/Technical Reference.md` still says the app is browser-only and deployable as SPFx (`lines 60, 119`), `documentation/Analysis and Plan.md` still frames the app as an SPFx/AI design document (`line 91`), and `documentation/improvement_plan.md` still uses older NASECO naming and outdated implementation claims.
+
+**Steps**
+1. Phase 1 — Reconcile business rules and define a single source of truth. Compare `app/src/data.ts`, `app/src/algorithm.ts`, `documentation/Technical Reference.md`, `documentation/Analysis and Plan.md`, `documentation/improvement_plan.md`, and any available packaging drawings/sample outputs. Produce one authoritative table for bundle quantities, strapping thresholds, beam bundle families, B-train semantics, and trailer geometry. This blocks all correctness fixes.
+2. Phase 2 — Add a regression harness around the reconciled rules. Create deterministic tests or fixture-driven checks for `orderItemsToBundles`, `calculateLoadPlan`, `calculateAxleWeights`, `generateLoadingSequence`, and quote parsing against the sample quote PDFs/XLSX in `documentation/samples`. This depends on step 1 and should land before broad logic changes.
+3. Phase 3 — Make manual layout edits part of the real plan state. Decide whether `bundlePositions` lives on `TruckLoad` inside `LoadPlan` or in a sibling persisted structure, then update `app/src/types.ts`, `app/src/storage.ts`, and `app/src/App.tsx` so auto-save, named saves, load, exports, and results all use the same authoritative positions. Define what happens on recalculate: preserve valid overrides, invalidate impossible overrides with a user-visible notice, or explicitly reset them.
+4. Phase 4 — Harden persistence for Electron desktop. Replace fire-and-forget writes in `app/src/storage.ts` with an awaited write queue or batched flush model, debounce auto-save in `app/src/App.tsx`, surface save failures in the UI, and add dirty-state warnings before reset/load. This can run in parallel with step 3 after the state shape is decided.
+5. Phase 5 — Correct core packing and compliance logic. Update `app/src/algorithm.ts` to enforce width limits when starting new rows, make category-mixing rules explicit, align strapping thresholds to the reconciled rule table, validate impossible frame/accessory dimensions, and clarify B-train center-of-gravity reporting. Re-run the regression harness after each change set. This depends on steps 1 and 2.
+6. Phase 6 — Unify viewer behavior with the algorithm. Refactor `app/src/components/TruckViewer3D.tsx` to reuse shared placement/constraint helpers from `app/src/algorithm.ts` rather than maintaining a second packing implementation. Drag/drop should reject placements that violate non-stackable, max-stack-weight, height, and deck-boundary rules, and cross-truck moves should update the authoritative plan state from step 3.
+7. Phase 7 — Tighten imports and order-entry validation. Add a review/confirmation step between `parseQuoteFile` and `setOrderItems`, improve quote header extraction and service-line filtering in `app/src/quoteParser.ts`, broaden Excel column heuristics in `app/src/components/GenericExcelImport.tsx`, and add required-field/range validation in `app/src/components/OrderForm.tsx` and `app/src/components/TruckSelector.tsx` for dimensions, weights, and multi-deck trailer fields. This can run in parallel with steps 4-6.
+8. Phase 8 — Harden exports and runtime assumptions. Sanitize filenames in `app/src/excelExport.ts` and `app/src/pdfExport.ts`, surface PDF image/canvas capture issues to the user, make the PDF worker path resilient for Electron-first deployment, and replace fragile environment detection in `app/index.html` with a more explicit Electron/browser runtime flag. This depends on steps 3 and 7.
+9. Phase 9 — Refresh all documentation after code behavior is settled. Rewrite `app/README.md`, update `documentation/Technical Reference.md`, `documentation/electron_framework.md`, `documentation/Analysis and Plan.md`, and `documentation/improvement_plan.md` to reflect the Electron-first architecture, NAS branding, reconciled business rules, actual feature behavior, supported runtimes, and known limitations. This depends on steps 1-8.
+
+**Relevant files**
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\data.ts` — bundle specs, trailer specs, product catalog values to reconcile.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\algorithm.ts` — bundling, packing, axle-weight, loading-sequence, and strapping logic.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\types.ts` — authoritative plan and trailer data model.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\App.tsx` — orchestration, auto-save, quote import, export entry points, 3D override state.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\storage.ts` — Electron/browser persistence, saved plan schema, auto-save schema.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\components\TruckViewer3D.tsx` — manual edit behavior and viewer-side constraint handling.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\components\LoadPlanResults.tsx` — displayed axle/sequence behavior that must match exports.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\components\OrderForm.tsx` — order validation, presets, constraint UI.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\components\TruckSelector.tsx` — custom trailer validation and multi-deck inputs.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\quoteParser.ts` — PDF/Excel parsing and product mapping.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\components\GenericExcelImport.tsx` — generic import mapping and preview validation.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\excelExport.ts` — Excel export formatting and filename generation.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\src\pdfExport.ts` — PDF export, loading instructions, diagram generation, asset capture.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\index.html` — browser/Electron runtime detection and service-worker registration.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\electron\main.ts` — IPC-backed file persistence in the Electron main process.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\electron\preload.ts` — secure renderer bridge for storage.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app\README.md` — currently stale project entry documentation.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\documentation\Technical Reference.md` — currently stale architecture and business-rule reference.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\documentation\Analysis and Plan.md` — legacy SPFx/AI design assumptions to reconcile or archive.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\documentation\improvement_plan.md` — stale naming and completed-feature narrative.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\documentation\electron_framework.md` — Electron persistence/runtime reference to keep aligned with storage changes.
+- `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\documentation\samples\` — sample quote fixtures for parser and regression checks.
+
+**Verification**
+1. Add behavior tests or fixture-driven scripts for bundle generation, packing, axle weights, loading sequence, and quote parsing using the sample documents before changing logic, then keep them green after each phase.
+2. Run `npm run build` and `npm run lint` from `c:\Users\StevenUsher\Documents\Programming Projects\Shipping Estimator\app` after each implementation phase.
+3. Execute a manual Electron smoke test on Windows for: cold launch, quote import, manual order entry, calculate, drag/reposition, save/load, auto-save restore, Excel export, PDF export, and app restart recovery.
+4. Verify that a manual 3D move changes the displayed axle weights, loading sequence, saved plan data, and exported PDF/Excel output consistently.
+5. Verify at least one B-train scenario, one over-width/over-height rejection scenario, one service-line quote import, and one invalid custom trailer edit path.
+6. Diff the refreshed docs against the implemented behavior before closing the work so the docs stop drifting again.
+
+**Decisions**
+- Business-rule conflicts should be reconciled before code correction rather than assuming either the current code or the authored docs are automatically right.
+- Electron desktop is the primary supported product; browser mode remains secondary compatibility rather than the design center.
+- Scope includes correctness, persistence, export reliability, validation, and documentation accuracy.
+- Scope excludes net-new competitive features that are not required to fix incorrect current behavior.
+
+**Further Considerations**
+1. Recommended data-model choice: keep manual layout overrides on `TruckLoad` inside the persisted `LoadPlan`, because every downstream consumer already receives truck objects and can then share one source of truth.
+2. Recommended testing approach: add low-overhead pure TypeScript regression tests around the deterministic core functions first, then add a small Electron/manual checklist instead of trying to introduce full end-to-end browser automation immediately.
+3. Recommended documentation strategy: keep one short user-facing README plus one technical reference, and archive or clearly mark legacy planning documents once the reconciled rules are published.
