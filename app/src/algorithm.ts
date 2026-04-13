@@ -660,15 +660,9 @@ export function computeBundleLayoutPositions(
 
   const positions: Record<string, { x: number; y: number; z: number }> = {};
 
-  // Apply manual overrides first
-  if (truck.bundlePositions) {
-    for (const [id, pos] of Object.entries(truck.bundlePositions)) {
-      positions[id] = pos;
-    }
-  }
-
-  // Layout bundles that don't have manual overrides
-  const needsLayout = truck.bundles.filter(b => !positions[b.id]);
+  // Layout all bundles first, then overlay any manual overrides.
+  // This avoids partial-override states where auto-laid bundles ignore moved bundle occupancy.
+  const needsLayout = truck.bundles;
   if (needsLayout.length === 0) return positions;
 
   interface Slot {
@@ -753,6 +747,15 @@ export function computeBundleLayoutPositions(
         positions[b.id] = { x, y: 0, z: 0 };
         placed = true;
         break;
+      }
+    }
+  }
+
+  if (truck.bundlePositions) {
+    const bundleIds = new Set(truck.bundles.map((b) => b.id));
+    for (const [id, pos] of Object.entries(truck.bundlePositions)) {
+      if (bundleIds.has(id)) {
+        positions[id] = pos;
       }
     }
   }

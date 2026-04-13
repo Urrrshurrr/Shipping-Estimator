@@ -8,10 +8,10 @@ import SavedPlans from './components/SavedPlans';
 import { calculateLoadPlan, calculateOptimizedLoadPlan } from './algorithm';
 import { exportLoadPlanPDF, exportAllLoadingInstructionsPDF } from './pdfExport';
 import { exportLoadPlanExcel } from './excelExport';
-import { TRAILER_SPECS, getAllTrailerSpecs } from './data';
+import { getAllTrailerSpecs } from './data';
 import { parseQuoteFile, parsedQuoteToOrderItems } from './quoteParser';
 import { loadAutoSave, saveAutoSave, clearAutoSave, onStorageError, type SavedPlan } from './storage';
-import type { OrderItem, TrailerType, LoadPlan, ParsedQuote, TruckLoad } from './types';
+import type { OrderItem, TrailerType, LoadPlan, ParsedQuote } from './types';
 
 function validateOrderItems(items: OrderItem[]): string[] {
   const errors: string[] = [];
@@ -198,24 +198,6 @@ function App() {
 
   const currentTruck = loadPlan?.trucks[viewingTruckIdx] ?? null;
 
-  // Recalculate truck stats from bundles
-  const recalcTruckStats = (truck: TruckLoad): TruckLoad => {
-    const trailer = getAllTrailerSpecs()[truck.trailerType] ?? TRAILER_SPECS['53-flatbed'];
-    const totalDeckLength = trailer.isMultiDeck
-      ? ((trailer.leadDeckLengthFt ?? 28) + (trailer.pupDeckLengthFt ?? 32)) * 12
-      : trailer.deckLengthFt * 12;
-    const maxWidth = trailer.internalWidthIn;
-    const totalWeight = truck.bundles.reduce((s, b) => s + b.totalWeightLbs, 0);
-    const usedArea = truck.bundles.reduce((s, b) => s + b.lengthIn * b.widthIn, 0);
-    const totalArea = totalDeckLength * maxWidth;
-    return {
-      ...truck,
-      totalWeightLbs: totalWeight,
-      weightUtilisation: (totalWeight / trailer.maxPayloadLbs) * 100,
-      areaUtilisation: totalArea > 0 ? Math.min((usedArea / totalArea) * 100, 100) : 0,
-    };
-  };
-
   const handleBundleSelect = useCallback((bundleId: string | null) => {
     setSelectedBundleId(bundleId);
   }, []);
@@ -236,44 +218,6 @@ function App() {
       return { ...prev, trucks };
     });
   }, [viewingTruckIdx]);
-
-  const handleMoveBundleToTruck = useCallback((bundleId: string, targetTruckIdx: number) => {
-    if (!loadPlan) return;
-    const sourceTruckIdx = viewingTruckIdx;
-    const sourceTruck = loadPlan.trucks[sourceTruckIdx];
-    const targetTruck = loadPlan.trucks[targetTruckIdx];
-    if (!sourceTruck || !targetTruck) return;
-
-    const bundle = sourceTruck.bundles.find(b => b.id === bundleId);
-    if (!bundle) return;
-
-    // Check weight capacity on target
-    const trailer = getAllTrailerSpecs()[targetTruck.trailerType] ?? TRAILER_SPECS['53-flatbed'];
-    if (targetTruck.totalWeightLbs + bundle.totalWeightLbs > trailer.maxPayloadLbs) return;
-
-    const newTrucks = loadPlan.trucks.map((t, i) => {
-      if (i === sourceTruckIdx) {
-        const nextPositions = { ...(t.bundlePositions ?? {}) };
-        delete nextPositions[bundleId];
-        return recalcTruckStats({ ...t, bundles: t.bundles.filter(b => b.id !== bundleId), bundlePositions: nextPositions });
-      }
-      if (i === targetTruckIdx) {
-        const nextPositions = { ...(t.bundlePositions ?? {}) };
-        delete nextPositions[bundleId];
-        return recalcTruckStats({ ...t, bundles: [...t.bundles, bundle], bundlePositions: nextPositions });
-      }
-      return t;
-    }).filter(t => t.bundles.length > 0).map((t, i) => ({ ...t, truckIndex: i }));
-
-    setLoadPlan({ ...loadPlan, trucks: newTrucks });
-    setSelectedBundleId(null);
-
-    // Switch to target truck view (adjust index after filtering)
-    const newIdx = newTrucks.findIndex(t =>
-      t.bundles.some(b => b.id === bundleId)
-    );
-    setViewingTruckIdx(newIdx >= 0 ? newIdx : 0);
-  }, [loadPlan, viewingTruckIdx]);
 
   const handleLoadSavedPlan = useCallback((saved: SavedPlan): boolean => {
     if ((orderItems.length > 0 || loadPlan) && !window.confirm('Load this saved plan and replace current work?')) {
@@ -468,9 +412,6 @@ function App() {
                   selectedBundleId={selectedBundleId}
                   onBundleSelect={handleBundleSelect}
                   onBundleMove={handleBundleMove}
-                  allTrucks={loadPlan.trucks}
-                  currentTruckIndex={viewingTruckIdx}
-                  onMoveBundleToTruck={handleMoveBundleToTruck}
                 />
               </div>
             </div>

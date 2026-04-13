@@ -12,9 +12,6 @@ interface Props {
   selectedBundleId: string | null;
   onBundleSelect: (bundleId: string | null) => void;
   onBundleMove?: (bundleId: string, newPos: { x: number; y: number; z: number }) => void;
-  allTrucks?: TruckLoad[];
-  currentTruckIndex: number;
-  onMoveBundleToTruck?: (bundleId: string, targetTruckIndex: number) => void;
 }
 
 // Scale: 1 unit = 1 inch in Three.js, then scale everything down for display
@@ -407,90 +404,215 @@ function BundlesScene({
           return Math.min(gY, maxHeight - bundle.heightIn);
         };
 
-        if (!fitsDeckBoundary(clampedX, drag.bundle.lengthIn)) {
-          window.alert('Invalid placement: bundles must remain fully on a single deck section.');
-          draggingRef.current = null;
-          dragPosRef.current = null;
-          shiftHeldRef.current = false;
-          if (orbitRef.current) orbitRef.current.enabled = true;
-          return;
-        }
+        const overlapVolume = (
+          ax: number, ay: number, az: number, aBundle: PackedBundle,
+          bx: number, by: number, bz: number, bBundle: PackedBundle,
+        ) => {
+          const ox = Math.max(0, Math.min(ax + aBundle.lengthIn, bx + bBundle.lengthIn) - Math.max(ax, bx));
+          const oy = Math.max(0, Math.min(ay + aBundle.heightIn, by + bBundle.heightIn) - Math.max(ay, by));
+          const oz = Math.max(0, Math.min(az + aBundle.widthIn, bz + bBundle.widthIn) - Math.max(az, bz));
+          return ox * oy * oz;
+        };
 
-        const targetY = isVerticalMove
-          ? clampedY
-          : computeGravityY(clampedX, clampedZ, drag.bundle, new Set([drag.bundleId]));
-
-        // Reject collisions
-        for (const [id, entry] of snap) {
-          if (id === drag.bundleId) continue;
-          if (overlaps3D(clampedX, targetY, clampedZ, drag.bundle, entry.x, entry.y, entry.z, entry.bundle)) {
-            window.alert('Invalid placement: bundles cannot overlap.');
-            draggingRef.current = null;
-            dragPosRef.current = null;
-            shiftHeldRef.current = false;
-            if (orbitRef.current) orbitRef.current.enabled = true;
-            return;
-          }
-        }
-
-        // Validate support constraints for elevated placements
-        if (targetY > eps) {
-          const supportingEntries = [...snap.entries()].filter(([id, entry]) => {
-            if (id === drag.bundleId) return false;
-            const supportTop = entry.y + entry.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-            return Math.abs(supportTop - targetY) <= 1 && overlapsXZ(clampedX, clampedZ, drag.bundle, entry.x, entry.z, entry.bundle);
-          });
-
-          if (supportingEntries.length === 0) {
-            window.alert('Invalid placement: elevated bundles must be fully supported.');
-            draggingRef.current = null;
-            dragPosRef.current = null;
-            shiftHeldRef.current = false;
-            if (orbitRef.current) orbitRef.current.enabled = true;
-            return;
+        const validatePlacement = (
+          entryId: string,
+          x: number,
+          y: number,
+          z: number,
+          bundle: PackedBundle,
+          state: Map<string, { x: number; y: number; z: number; bundle: PackedBundle }>,
+        ): { ok: true } | { ok: false; reason: string } => {
+          if (x < -eps || z < -eps || x + bundle.lengthIn > totalDeckLengthIn + eps || z + bundle.widthIn > maxWidth + eps) {
+            return { ok: false, reason: 'Invalid placement: bundle is outside truck bounds.' };
           }
 
-          for (const [id, support] of supportingEntries) {
-            if (support.bundle.nonStackable) {
-              window.alert(`Invalid placement: "${support.bundle.description}" is marked non-stackable.`);
-              draggingRef.current = null;
-              dragPosRef.current = null;
-              shiftHeldRef.current = false;
-              if (orbitRef.current) orbitRef.current.enabled = true;
-              return;
+          if (!fitsDeckBoundary(x, bundle.lengthIn)) {
+            return { ok: false, reason: 'Invalid placement: bundles must remain fully on a single deck section.' };
+          }
+
+          if (y < -eps || y + bundle.heightIn > maxHeight + eps) {
+            return { ok: false, reason: 'Invalid placement: bundle exceeds truck height limits.' };
+          }
+
+          for (const [otherId, other] of state) {
+            if (otherId === entryId) continue;
+            if (overlaps3D(x, y, z, bundle, other.x, other.y, other.z, other.bundle)) {
+              return { ok: false, reason: 'Invalid placement: bundles cannot overlap.' };
+            }
+          }
+
+          if (y > eps) {
+            const supports = [...state.entries()].filter(([otherId, other]) => {
+              if (otherId === entryId) return false;
+              const supportTop = other.y + other.bundle.heightIn + DUNNAGE_HEIGHT_IN;
+              return Math.abs(supportTop - y) <= 1 && overlapsXZ(x, z, bundle, other.x, other.z, other.bundle);
+            });
+
+            if (supports.length === 0) {
+              return { ok: false, reason: 'Invalid placement: elevated bundles must be fully supported.' };
             }
 
-            if (support.bundle.category !== drag.bundle.category) {
-              window.alert('Invalid placement: category mixing is not allowed in stacked bundles.');
-              draggingRef.current = null;
-              dragPosRef.current = null;
-              shiftHeldRef.current = false;
-              if (orbitRef.current) orbitRef.current.enabled = true;
-              return;
-            }
+            for (const [supportId, support] of supports) {
+              if (support.bundle.nonStackable) {
+                return { ok: false, reason: `Invalid placement: "${support.bundle.description}" is marked non-stackable.` };
+              }
 
-            if (support.bundle.maxStackWeightLbs != null) {
-              const supportTop = support.y + support.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-              let existingWeightAbove = 0;
-              for (const [otherId, other] of snap) {
-                if (otherId === drag.bundleId || otherId === id) continue;
-                if (other.y + eps >= supportTop && overlapsXZ(support.x, support.z, support.bundle, other.x, other.z, other.bundle)) {
-                  existingWeightAbove += other.bundle.totalWeightLbs;
+              if (support.bundle.category !== bundle.category) {
+                return { ok: false, reason: 'Invalid placement: category mixing is not allowed in stacked bundles.' };
+              }
+
+              if (support.bundle.maxStackWeightLbs != null) {
+                const supportTop = support.y + support.bundle.heightIn + DUNNAGE_HEIGHT_IN;
+                let existingWeightAbove = 0;
+
+                for (const [otherId, other] of state) {
+                  if (otherId === entryId || otherId === supportId) continue;
+                  if (other.y + eps >= supportTop && overlapsXZ(support.x, support.z, support.bundle, other.x, other.z, other.bundle)) {
+                    existingWeightAbove += other.bundle.totalWeightLbs;
+                  }
+                }
+
+                if (existingWeightAbove + bundle.totalWeightLbs > support.bundle.maxStackWeightLbs) {
+                  return { ok: false, reason: `Invalid placement: max stack weight exceeded for "${support.bundle.description}".` };
                 }
               }
-              if (existingWeightAbove + drag.bundle.totalWeightLbs > support.bundle.maxStackWeightLbs) {
-                window.alert(`Invalid placement: max stack weight exceeded for "${support.bundle.description}".`);
-                draggingRef.current = null;
-                dragPosRef.current = null;
-                shiftHeldRef.current = false;
-                if (orbitRef.current) orbitRef.current.enabled = true;
-                return;
+            }
+          }
+
+          return { ok: true };
+        };
+
+        const settleStateDownward = (
+          state: Map<string, { x: number; y: number; z: number; bundle: PackedBundle }>,
+        ): Map<string, { x: number; y: number; z: number; bundle: PackedBundle }> => {
+          const settled = new Map<string, { x: number; y: number; z: number; bundle: PackedBundle }>();
+          for (const [id, entry] of state) {
+            settled.set(id, { ...entry });
+          }
+
+          let changed = true;
+          let iter = 0;
+
+          while (changed && iter < 50) {
+            changed = false;
+            iter += 1;
+            const ordered = [...settled.entries()].sort((a, b) => a[1].y - b[1].y);
+
+            for (const [id, entry] of ordered) {
+              if (entry.y <= eps) continue;
+
+              let highestBelow = 0;
+              for (const [otherId, other] of settled) {
+                if (otherId === id) continue;
+                if (!overlapsXZ(entry.x, entry.z, entry.bundle, other.x, other.z, other.bundle)) continue;
+                const top = other.y + other.bundle.heightIn + DUNNAGE_HEIGHT_IN;
+                if (top <= entry.y + eps && top > highestBelow) {
+                  highestBelow = top;
+                }
+              }
+
+              const newY = Math.max(0, Math.min(highestBelow, maxHeight - entry.bundle.heightIn));
+              if (newY < entry.y - 0.5) {
+                entry.y = newY;
+                changed = true;
               }
             }
           }
-        }
 
-        onBundleMove(drag.bundleId, { x: clampedX, y: targetY, z: clampedZ });
+          return settled;
+        };
+
+        const validateState = (
+          state: Map<string, { x: number; y: number; z: number; bundle: PackedBundle }>,
+        ): { ok: true } | { ok: false; reason: string } => {
+          for (const [id, entry] of state) {
+            const check = validatePlacement(id, entry.x, entry.y, entry.z, entry.bundle, state);
+            if (!check.ok) return check;
+          }
+          return { ok: true };
+        };
+
+        const commitStateChanges = (
+          state: Map<string, { x: number; y: number; z: number; bundle: PackedBundle }>,
+        ) => {
+          for (const [id, entry] of state) {
+            const original = snap.get(id);
+            if (!original) continue;
+            if (
+              Math.abs(original.x - entry.x) > 0.01
+              || Math.abs(original.y - entry.y) > 0.01
+              || Math.abs(original.z - entry.z) > 0.01
+            ) {
+              onBundleMove(id, { x: entry.x, y: entry.y, z: entry.z });
+            }
+          }
+        };
+
+        // Overlaps should attempt a true swap first: dragged bundle takes target slot,
+        // displaced bundle moves to dragged bundle's original slot.
+        const swapProbeY = isVerticalMove ? clampedY : drag.startPos.y;
+        const swapCandidates = [...snap.entries()]
+          .filter(([id, entry]) => id !== drag.bundleId
+            && overlaps3D(clampedX, swapProbeY, clampedZ, drag.bundle, entry.x, entry.y, entry.z, entry.bundle))
+          .map(([id, entry]) => ({
+            id,
+            entry,
+            volume: overlapVolume(clampedX, swapProbeY, clampedZ, drag.bundle, entry.x, entry.y, entry.z, entry.bundle),
+          }))
+          .sort((a, b) => b.volume - a.volume);
+
+        if (swapCandidates.length > 0) {
+          let swapped = false;
+
+          for (const candidate of swapCandidates) {
+            const dragTarget = { x: candidate.entry.x, y: candidate.entry.y, z: candidate.entry.z };
+            const displacedTarget = { x: drag.startPos.x, y: drag.startPos.y, z: drag.startPos.z };
+
+            const swappedState = new Map(snap);
+            swappedState.set(drag.bundleId, { ...dragTarget, bundle: drag.bundle });
+            swappedState.set(candidate.id, { ...displacedTarget, bundle: candidate.entry.bundle });
+
+            const settledSwapState = settleStateDownward(swappedState);
+            const swapCheck = validateState(settledSwapState);
+            if (!swapCheck.ok) {
+              continue;
+            }
+
+            commitStateChanges(settledSwapState);
+            swapped = true;
+            break;
+          }
+
+          if (!swapped) {
+            window.alert('Invalid placement: displaced bundle has no valid swap location on this truck.');
+            draggingRef.current = null;
+            dragPosRef.current = null;
+            shiftHeldRef.current = false;
+            if (orbitRef.current) orbitRef.current.enabled = true;
+            return;
+          }
+        } else {
+          const targetY = isVerticalMove
+            ? clampedY
+            : computeGravityY(clampedX, clampedZ, drag.bundle, new Set([drag.bundleId]));
+
+          const movedState = new Map(snap);
+          movedState.set(drag.bundleId, { x: clampedX, y: targetY, z: clampedZ, bundle: drag.bundle });
+
+          const settledMoveState = settleStateDownward(movedState);
+          const placementCheck = validateState(settledMoveState);
+
+          if (!placementCheck.ok) {
+            window.alert(placementCheck.reason);
+            draggingRef.current = null;
+            dragPosRef.current = null;
+            shiftHeldRef.current = false;
+            if (orbitRef.current) orbitRef.current.enabled = true;
+            return;
+          }
+
+          commitStateChanges(settledMoveState);
+        }
       }
 
       draggingRef.current = null;
@@ -547,7 +669,6 @@ function BundlesScene({
 // ============================================================
 export default function TruckViewer3D({
   truck, selectedBundleId, onBundleSelect, onBundleMove,
-  allTrucks, currentTruckIndex, onMoveBundleToTruck,
 }: Props) {
   const trailer = getAllTrailerSpecs()[truck.trailerType] ?? TRAILER_SPECS['53-flatbed'];
   const centerX = (trailer.deckLengthFt * 12 * SCALE) / 2;
@@ -604,20 +725,6 @@ export default function TruckViewer3D({
             <div className="info-row"><span>Dimensions</span><span>{Math.round(selectedBundle.lengthIn)}&quot; &times; {Math.round(selectedBundle.widthIn)}&quot; &times; {Math.round(selectedBundle.heightIn)}&quot;</span></div>
           </div>
           <p className="info-hint">Drag to reposition · Hold <kbd>Shift</kbd>+drag for vertical</p>
-          {allTrucks && allTrucks.length > 1 && onMoveBundleToTruck && (
-            <div className="bundle-move-controls">
-              <label>Move to:</label>
-              <div className="move-buttons">
-                {allTrucks.map((_, i) =>
-                  i !== currentTruckIndex ? (
-                    <button key={i} className="btn btn-sm btn-outline" onClick={() => onMoveBundleToTruck(selectedBundle.id, i)}>
-                      Truck #{i + 1}
-                    </button>
-                  ) : null,
-                )}
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
