@@ -1,50 +1,65 @@
-import { BrowserWindow as e, app as t, ipcMain as n } from "electron";
-import r from "node:path";
-import i from "node:fs";
-import { fileURLToPath as a } from "node:url";
+import { BrowserWindow, app, ipcMain } from "electron";
+import path from "node:path";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 //#region electron/main.ts
-var o = a(import.meta.url), s = r.dirname(o), c = r.join(t.getPath("userData"), "data");
-i.existsSync(c) || i.mkdirSync(c, { recursive: !0 });
-var l = r.join(s, "../dist"), u = process.env.VITE_DEV_SERVER_URL, d = null;
-function f() {
-	d = new e({
+var __filename = fileURLToPath(import.meta.url);
+var __dirname = path.dirname(__filename);
+var DATA_DIR = path.join(app.getPath("userData"), "data");
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+var RENDERER_DIST = path.join(__dirname, "../dist");
+var VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
+var mainWindow = null;
+function createWindow() {
+	mainWindow = new BrowserWindow({
 		width: 1050,
 		height: 900,
 		minWidth: 1024,
 		minHeight: 700,
 		title: "NAS Shipping Estimator",
-		icon: r.join(s, "../public/NAS_Icon.png"),
+		icon: path.join(__dirname, "../public/NAS_Icon.png"),
 		webPreferences: {
-			preload: r.join(s, "preload.js"),
-			contextIsolation: !0,
-			nodeIntegration: !1
+			preload: path.join(__dirname, "preload.js"),
+			contextIsolation: true,
+			nodeIntegration: false
 		}
-	}), d.setMenuBarVisibility(!1), u ? d.loadURL(u) : d.loadFile(r.join(l, "index.html"));
+	});
+	mainWindow.setMenuBarVisibility(false);
+	if (VITE_DEV_SERVER_URL) mainWindow.loadURL(VITE_DEV_SERVER_URL);
+	else mainWindow.loadFile(path.join(RENDERER_DIST, "index.html"));
 }
-function p(e) {
-	let t = e.replace(/[^a-zA-Z0-9_-]/g, "_");
-	return r.join(c, `${t}.json`);
+function storagePath(key) {
+	const safe = key.replace(/[^a-zA-Z0-9_-]/g, "_");
+	return path.join(DATA_DIR, `${safe}.json`);
 }
-n.handle("storage:get", (e, t) => {
-	let n = p(t);
-	if (!i.existsSync(n)) return null;
+ipcMain.handle("storage:get", (_event, key) => {
+	const file = storagePath(key);
+	if (!fs.existsSync(file)) return null;
 	try {
-		return i.readFileSync(n, "utf-8");
+		return fs.readFileSync(file, "utf-8");
 	} catch {
 		return null;
 	}
-}), n.handle("storage:set", (e, t, n) => {
+});
+ipcMain.handle("storage:set", (_event, key, value) => {
 	try {
-		return i.writeFileSync(p(t), n, "utf-8"), !0;
+		fs.writeFileSync(storagePath(key), value, "utf-8");
+		return true;
 	} catch {
-		return !1;
+		return false;
 	}
-}), n.handle("storage:remove", (e, t) => {
-	let n = p(t);
-	return i.existsSync(n) && i.unlinkSync(n), !0;
-}), n.handle("storage:getDataPath", () => c), t.whenReady().then(f), t.on("window-all-closed", () => {
-	t.quit();
-}), t.on("activate", () => {
-	e.getAllWindows().length === 0 && f();
+});
+ipcMain.handle("storage:remove", (_event, key) => {
+	const file = storagePath(key);
+	if (fs.existsSync(file)) fs.unlinkSync(file);
+	return true;
+});
+ipcMain.handle("storage:getDataPath", () => DATA_DIR);
+app.whenReady().then(createWindow);
+app.on("window-all-closed", () => {
+	app.quit();
+});
+app.on("activate", () => {
+	if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 //#endregion
