@@ -356,7 +356,10 @@ export default function OrderForm({ items, onChange, onQuoteUpload, importStatus
                                 <input
                                   type="checkbox"
                                   checked={item.nonStackable ?? false}
-                                  onChange={e => updateItem(item.id, { nonStackable: e.target.checked })}
+                                  onChange={e => updateItem(item.id, {
+                                    nonStackable: e.target.checked,
+                                    maxStackWeightLbs: e.target.checked ? undefined : item.maxStackWeightLbs,
+                                  })}
                                 />
                                 Non-stackable
                               </label>
@@ -382,6 +385,7 @@ export default function OrderForm({ items, onChange, onQuoteUpload, importStatus
                                   type="number"
                                   min={0}
                                   placeholder="No limit"
+                                  disabled={item.nonStackable ?? false}
                                   value={item.maxStackWeightLbs ?? ''}
                                   onChange={e => updateItem(item.id, {
                                     maxStackWeightLbs: e.target.value ? Number(e.target.value) : undefined,

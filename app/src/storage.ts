@@ -14,6 +14,29 @@ interface ElectronStorageAPI {
   getDataPath(): Promise<string>;
 }
 
+export interface StorageError {
+  key: string;
+  operation: 'get' | 'set' | 'remove';
+  message: string;
+}
+
+type StorageErrorListener = (error: StorageError) => void;
+
+const storageErrorListeners = new Set<StorageErrorListener>();
+
+function notifyStorageError(error: StorageError): void {
+  for (const listener of storageErrorListeners) {
+    listener(error);
+  }
+}
+
+export function onStorageError(listener: StorageErrorListener): () => void {
+  storageErrorListeners.add(listener);
+  return () => {
+    storageErrorListeners.delete(listener);
+  };
+}
+
 declare global {
   interface Window {
     electronStorage?: ElectronStorageAPI;
@@ -24,6 +47,42 @@ const isElectron = typeof window !== 'undefined' && !!window.electronStorage;
 
 // In-memory cache — populated at init, kept in sync on writes.
 const cache: Record<string, string | null> = {};
+
+// Serialize Electron writes so we do not race disk persistence operations.
+let electronWriteQueue: Promise<void> = Promise.resolve();
+
+function queueElectronWrite(
+  key: string,
+  operation: 'set' | 'remove',
+  task: () => Promise<boolean>,
+): void {
+  electronWriteQueue = electronWriteQueue
+    .then(async () => {
+      try {
+        const ok = await task();
+        if (!ok) {
+          notifyStorageError({
+            key,
+            operation,
+            message: `Electron storage ${operation} failed for key "${key}".`,
+          });
+        }
+      } catch (err) {
+        notifyStorageError({
+          key,
+          operation,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })
+    .catch(() => {
+      // Keep queue alive even after an unexpected error.
+    });
+}
+
+export async function flushStorageWrites(): Promise<void> {
+  await electronWriteQueue;
+}
 
 /**
  * Synchronous read from cache (Electron) or localStorage (browser).
@@ -42,9 +101,17 @@ function storageGet(key: string): string | null {
 function storageSet(key: string, value: string): void {
   if (isElectron) {
     cache[key] = value;
-    window.electronStorage!.set(key, value);  // fire-and-forget
+    queueElectronWrite(key, 'set', () => window.electronStorage!.set(key, value));
   } else {
-    localStorage.setItem(key, value);
+    try {
+      localStorage.setItem(key, value);
+    } catch (err) {
+      notifyStorageError({
+        key,
+        operation: 'set',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 }
 
@@ -55,9 +122,17 @@ function storageSet(key: string, value: string): void {
 function storageRemove(key: string): void {
   if (isElectron) {
     cache[key] = null;
-    window.electronStorage!.remove(key);  // fire-and-forget
+    queueElectronWrite(key, 'remove', () => window.electronStorage!.remove(key));
   } else {
-    localStorage.removeItem(key);
+    try {
+      localStorage.removeItem(key);
+    } catch (err) {
+      notifyStorageError({
+        key,
+        operation: 'remove',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 }
 
@@ -80,7 +155,16 @@ export async function initStorage(): Promise<void> {
   if (!isElectron) return;
   await Promise.all(
     ALL_KEYS.map(async (key) => {
-      cache[key] = await window.electronStorage!.get(key);
+      try {
+        cache[key] = await window.electronStorage!.get(key);
+      } catch (err) {
+        cache[key] = null;
+        notifyStorageError({
+          key,
+          operation: 'get',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
     }),
   );
 }

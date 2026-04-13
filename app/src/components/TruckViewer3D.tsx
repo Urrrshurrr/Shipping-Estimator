@@ -2,8 +2,10 @@ import { useMemo, useRef, useCallback, useEffect } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Line, Text } from '@react-three/drei';
 import * as THREE from 'three';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import type { TruckLoad, PackedBundle } from '../types';
 import { TRAILER_SPECS, getAllTrailerSpecs, DUNNAGE_HEIGHT_IN } from '../data';
+import { computeBundleLayoutPositions } from '../algorithm';
 
 interface Props {
   truck: TruckLoad;
@@ -99,89 +101,19 @@ interface DragState {
 }
 
 // ============================================================
-// Position computation – extracted layout algorithm
+// Position computation – delegated to algorithm.ts
 // ============================================================
-function computeBundlePositions(
-  bundles: PackedBundle[],
-  maxWidth: number,
-  maxHeight: number,
-  totalDeckLengthIn: number,
-  positionOverrides?: Record<string, { x: number; y: number; z: number }>,
-): BundlePosition[] {
-  const result: BundlePosition[] = [];
-
-  interface Slot {
-    x: number; z: number; lengthIn: number; widthIn: number;
-    stackHeight: number; category: string;
-  }
-  const slots: Slot[] = [];
-
-  interface Row {
-    x: number; lengthIn: number; usedWidth: number; category: string;
-  }
-  const rows: Row[] = [];
-
-  const categoryOrder: Record<string, number> = { frame: 0, beam: 1, accessory: 2 };
-  const sorted = [...bundles].sort((a, b) => {
-    const catA = categoryOrder[a.category] ?? 9;
-    const catB = categoryOrder[b.category] ?? 9;
-    if (catA !== catB) return catA - catB;
-    if (Math.abs(a.lengthIn - b.lengthIn) > 6) return b.lengthIn - a.lengthIn;
-    return b.totalWeightLbs - a.totalWeightLbs;
-  });
-
-  for (let i = 0; i < sorted.length; i++) {
-    const b = sorted[i];
-    let placed = false;
-
-    for (const row of rows) {
-      if (row.category !== b.category) continue;
-      if (b.lengthIn <= row.lengthIn && row.usedWidth + b.widthIn <= maxWidth) {
-        slots.push({ x: row.x, z: row.usedWidth, lengthIn: b.lengthIn, widthIn: b.widthIn, stackHeight: b.heightIn, category: b.category });
-        result.push({ x: row.x, y: 0, z: row.usedWidth, bundle: b, color: BUNDLE_COLORS[i % BUNDLE_COLORS.length] });
-        row.usedWidth += b.widthIn;
-        placed = true;
-        break;
-      }
-    }
-    if (placed) continue;
-
-    let bestSlotIdx = -1;
-    let bestIsSameCategory = false;
-    for (let si = 0; si < slots.length; si++) {
-      const slot = slots[si];
-      if (b.lengthIn <= slot.lengthIn && b.widthIn <= slot.widthIn) {
-        const newHeight = slot.stackHeight + DUNNAGE_HEIGHT_IN + b.heightIn;
-        if (newHeight <= maxHeight) {
-          const sameCategory = slot.category === b.category;
-          if (bestSlotIdx < 0 || (sameCategory && !bestIsSameCategory)) {
-            bestSlotIdx = si;
-            bestIsSameCategory = sameCategory;
-          }
-        }
-      }
-    }
-    if (bestSlotIdx >= 0) {
-      const slot = slots[bestSlotIdx];
-      result.push({ x: slot.x, y: slot.stackHeight + DUNNAGE_HEIGHT_IN, z: slot.z, bundle: b, color: BUNDLE_COLORS[i % BUNDLE_COLORS.length] });
-      slot.stackHeight += DUNNAGE_HEIGHT_IN + b.heightIn;
-      placed = true;
-    }
-    if (placed) continue;
-
-    const currentUsedLength = rows.reduce((max, r) => Math.max(max, r.x + r.lengthIn), 0);
-    if (currentUsedLength + b.lengthIn <= totalDeckLengthIn) {
-      rows.push({ x: currentUsedLength, lengthIn: b.lengthIn, usedWidth: b.widthIn, category: b.category });
-      slots.push({ x: currentUsedLength, z: 0, lengthIn: b.lengthIn, widthIn: b.widthIn, stackHeight: b.heightIn, category: b.category });
-      result.push({ x: currentUsedLength, y: 0, z: 0, bundle: b, color: BUNDLE_COLORS[i % BUNDLE_COLORS.length] });
-    }
-  }
-
-  // Apply manual position overrides (from drag-and-drop)
-  return result.map(pos => {
-    const override = positionOverrides?.[pos.bundle.id];
-    if (override) return { ...pos, x: override.x, y: override.y, z: override.z };
-    return pos;
+function computeBundlePositions(truck: TruckLoad): BundlePosition[] {
+  const computed = computeBundleLayoutPositions(truck);
+  return truck.bundles.map((bundle, index) => {
+    const pos = computed[bundle.id] ?? { x: 0, y: 0, z: 0 };
+    return {
+      x: pos.x,
+      y: pos.y,
+      z: pos.z,
+      bundle,
+      color: BUNDLE_COLORS[index % BUNDLE_COLORS.length],
+    };
   });
 }
 
@@ -293,24 +225,25 @@ function BundleMesh({ pos, isSelected, onClick, onDragStart, draggingRef, dragPo
 // BundlesScene – manages all bundles, drag logic, pointer events
 // ============================================================
 function BundlesScene({
-  truck, selectedBundleId, onBundleSelect, onBundleMove, orbitRef, positionOverrides,
+  truck, selectedBundleId, onBundleSelect, onBundleMove, orbitRef,
 }: {
   truck: TruckLoad;
   selectedBundleId: string | null;
   onBundleSelect: (id: string | null) => void;
   onBundleMove?: (id: string, pos: { x: number; y: number; z: number }) => void;
-  orbitRef: React.MutableRefObject<unknown>;
-  positionOverrides?: Record<string, { x: number; y: number; z: number }>;
+  orbitRef: React.MutableRefObject<OrbitControlsImpl | null>;
 }) {
   const { camera, gl } = useThree();
   const trailer = getAllTrailerSpecs()[truck.trailerType] ?? TRAILER_SPECS['53-flatbed'];
   const maxWidth = trailer.internalWidthIn;
   const maxHeight = trailer.internalHeightIn;
-  const totalDeckLengthIn = trailer.deckLengthFt * 12;
+  const totalDeckLengthIn = trailer.isMultiDeck
+    ? ((trailer.leadDeckLengthFt ?? 28) + (trailer.pupDeckLengthFt ?? 32)) * 12
+    : trailer.deckLengthFt * 12;
 
   const positions = useMemo(
-    () => computeBundlePositions(truck.bundles, maxWidth, maxHeight, totalDeckLengthIn, positionOverrides),
-    [truck.bundles, maxWidth, maxHeight, totalDeckLengthIn, positionOverrides],
+    () => computeBundlePositions(truck),
+    [truck],
   );
 
   const draggingRef = useRef<DragState | null>(null);
@@ -425,16 +358,9 @@ function BundlesScene({
           return;
         }
 
-        // Build mutable snapshot of all bundle positions
-        const snap = new Map<string, { x: number; y: number; z: number; bundle: PackedBundle }>();
-        for (const p of positions) {
-          snap.set(p.bundle.id, { x: p.x, y: p.y, z: p.z, bundle: p.bundle });
-        }
-
         const eps = 0.5;
         const isVerticalMove = ady > 1 && ady > (adx + adz);
 
-        // Helper: check if two bounding boxes overlap in 3D
         const overlaps3D = (
           ax: number, ay: number, az: number, aBundle: PackedBundle,
           bx: number, by: number, bz: number, bBundle: PackedBundle,
@@ -444,209 +370,127 @@ function BundlesScene({
               && az + eps < bz + bBundle.widthIn && az + aBundle.widthIn > bz + eps;
         };
 
-        // Helper: compute gravity Y for a given bundle at (x, z), ignoring certain IDs
+        const overlapsXZ = (
+          ax: number, az: number, aBundle: PackedBundle,
+          bx: number, bz: number, bBundle: PackedBundle,
+        ) => {
+          return ax + eps < bx + bBundle.lengthIn && ax + aBundle.lengthIn > bx + eps
+              && az + eps < bz + bBundle.widthIn && az + aBundle.widthIn > bz + eps;
+        };
+
+        const fitsDeckBoundary = (x: number, lengthIn: number): boolean => {
+          if (!trailer.isMultiDeck) return true;
+          const leadLenIn = (trailer.leadDeckLengthFt ?? 28) * 12;
+          const pupLenIn = (trailer.pupDeckLengthFt ?? 32) * 12;
+          const totalLenIn = leadLenIn + pupLenIn;
+          const inLead = x >= 0 && x + lengthIn <= leadLenIn;
+          const inPup = x >= leadLenIn && x + lengthIn <= totalLenIn;
+          return inLead || inPup;
+        };
+
+        const snap = new Map<string, { x: number; y: number; z: number; bundle: PackedBundle }>();
+        for (const p of positions) {
+          snap.set(p.bundle.id, { x: p.x, y: p.y, z: p.z, bundle: p.bundle });
+        }
+
         const computeGravityY = (
           x: number, z: number, bundle: PackedBundle, ignoreIds: Set<string>,
         ) => {
           let gY = 0;
-          for (const [id, o] of snap) {
+          for (const [id, entry] of snap) {
             if (ignoreIds.has(id)) continue;
-            if (x + eps < o.x + o.bundle.lengthIn && x + bundle.lengthIn > o.x + eps
-             && z + eps < o.z + o.bundle.widthIn && z + bundle.widthIn > o.z + eps) {
-              const top = o.y + o.bundle.heightIn + DUNNAGE_HEIGHT_IN;
+            if (overlapsXZ(x, z, bundle, entry.x, entry.z, entry.bundle)) {
+              const top = entry.y + entry.bundle.heightIn + DUNNAGE_HEIGHT_IN;
               if (top > gY) gY = top;
             }
           }
           return Math.min(gY, maxHeight - bundle.heightIn);
         };
 
-        // Find bundles that the dragged bundle would overlap at the drop position
-        const findOverlapping = (tx: number, ty: number, tz: number) => {
-          const result: string[] = [];
-          for (const [id, o] of snap) {
-            if (id === drag.bundleId) continue;
-            if (overlaps3D(tx, ty, tz, drag.bundle, o.x, o.y, o.z, o.bundle)) {
-              result.push(id);
-            }
-          }
-          return result;
-        };
-
-        // Determine the target position for the dragged bundle
-        let targetX = clampedX;
-        let targetZ = clampedZ;
-        let targetY = clampedY;
-
-        if (!isVerticalMove) {
-          // Horizontal: compute gravity Y at drop XZ
-          targetY = computeGravityY(targetX, targetZ, drag.bundle, new Set([drag.bundleId]));
+        if (!fitsDeckBoundary(clampedX, drag.bundle.lengthIn)) {
+          window.alert('Invalid placement: bundles must remain fully on a single deck section.');
+          draggingRef.current = null;
+          dragPosRef.current = null;
+          shiftHeldRef.current = false;
+          if (orbitRef.current) orbitRef.current.enabled = true;
+          return;
         }
 
-        // Find which bundles we'd collide with
-        const overlapping = findOverlapping(targetX, targetY, targetZ);
+        const targetY = isVerticalMove
+          ? clampedY
+          : computeGravityY(clampedX, clampedZ, drag.bundle, new Set([drag.bundleId]));
 
-        if (overlapping.length === 0) {
-          // ── FREE SPACE: just place the bundle ──
-          snap.set(drag.bundleId, { x: targetX, y: targetY, z: targetZ, bundle: drag.bundle });
-          onBundleMove(drag.bundleId, { x: targetX, y: targetY, z: targetZ });
+        // Reject collisions
+        for (const [id, entry] of snap) {
+          if (id === drag.bundleId) continue;
+          if (overlaps3D(clampedX, targetY, clampedZ, drag.bundle, entry.x, entry.y, entry.z, entry.bundle)) {
+            window.alert('Invalid placement: bundles cannot overlap.');
+            draggingRef.current = null;
+            dragPosRef.current = null;
+            shiftHeldRef.current = false;
+            if (orbitRef.current) orbitRef.current.enabled = true;
+            return;
+          }
+        }
 
-        } else if (isVerticalMove) {
-          // ── VERTICAL RESTACK ──
-          // Gather all bundles in the same column (overlapping XZ footprint)
-          const columnIds = new Set<string>([drag.bundleId]);
-          for (const [id, o] of snap) {
-            if (id === drag.bundleId) continue;
-            const xO = drag.startPos.x + eps < o.x + o.bundle.lengthIn && drag.startPos.x + drag.bundle.lengthIn > o.x + eps;
-            const zO = drag.startPos.z + eps < o.z + o.bundle.widthIn && drag.startPos.z + drag.bundle.widthIn > o.z + eps;
-            if (xO && zO) columnIds.add(id);
+        // Validate support constraints for elevated placements
+        if (targetY > eps) {
+          const supportingEntries = [...snap.entries()].filter(([id, entry]) => {
+            if (id === drag.bundleId) return false;
+            const supportTop = entry.y + entry.bundle.heightIn + DUNNAGE_HEIGHT_IN;
+            return Math.abs(supportTop - targetY) <= 1 && overlapsXZ(clampedX, clampedZ, drag.bundle, entry.x, entry.z, entry.bundle);
+          });
+
+          if (supportingEntries.length === 0) {
+            window.alert('Invalid placement: elevated bundles must be fully supported.');
+            draggingRef.current = null;
+            dragPosRef.current = null;
+            shiftHeldRef.current = false;
+            if (orbitRef.current) orbitRef.current.enabled = true;
+            return;
           }
 
-          // Sort column members by Y (excluding dragged bundle)
-          const others: Array<{ id: string; entry: typeof snap extends Map<string, infer V> ? V : never }> = [];
-          for (const id of columnIds) {
-            if (id === drag.bundleId) continue;
-            others.push({ id, entry: snap.get(id)! });
-          }
-          others.sort((a, b) => a.entry.y - b.entry.y);
-
-          // Determine insertion index based on where the user dropped
-          const movingDown = clampedY < drag.startPos.y;
-          let insertIdx = others.length;
-          for (let i = 0; i < others.length; i++) {
-            const midY = others[i].entry.y + others[i].entry.bundle.heightIn / 2;
-            if (clampedY < midY || (Math.abs(clampedY - midY) < 2 && movingDown)) {
-              insertIdx = i;
-              break;
+          for (const [id, support] of supportingEntries) {
+            if (support.bundle.nonStackable) {
+              window.alert(`Invalid placement: "${support.bundle.description}" is marked non-stackable.`);
+              draggingRef.current = null;
+              dragPosRef.current = null;
+              shiftHeldRef.current = false;
+              if (orbitRef.current) orbitRef.current.enabled = true;
+              return;
             }
-          }
 
-          // Build new order with dragged bundle inserted
-          const ordered = others.map(o => o.id);
-          ordered.splice(insertIdx, 0, drag.bundleId);
-
-          // Find base Y (top of non-column bundles under this footprint)
-          let baseY = 0;
-          for (const [id, o] of snap) {
-            if (columnIds.has(id)) continue;
-            const first = snap.get(ordered[0])!;
-            const xO = first.x + eps < o.x + o.bundle.lengthIn && first.x + first.bundle.lengthIn > o.x + eps;
-            const zO = first.z + eps < o.z + o.bundle.widthIn && first.z + first.bundle.widthIn > o.z + eps;
-            if (xO && zO) {
-              const top = o.y + o.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-              if (top > baseY) baseY = top;
+            if (support.bundle.category !== drag.bundle.category) {
+              window.alert('Invalid placement: category mixing is not allowed in stacked bundles.');
+              draggingRef.current = null;
+              dragPosRef.current = null;
+              shiftHeldRef.current = false;
+              if (orbitRef.current) orbitRef.current.enabled = true;
+              return;
             }
-          }
 
-          // Check total height fits
-          let totalH = baseY;
-          for (const id of ordered) {
-            totalH += snap.get(id)!.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-          }
-          totalH -= DUNNAGE_HEIGHT_IN;
-
-          if (totalH <= maxHeight) {
-            let curY = baseY;
-            for (const id of ordered) {
-              const entry = snap.get(id)!;
-              entry.y = curY;
-              onBundleMove(id, { x: entry.x, y: curY, z: entry.z });
-              curY += entry.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-            }
-          }
-          // If doesn't fit, bundle snaps back (no changes committed for it)
-
-        } else {
-          // ── HORIZONTAL SWAP ──
-          // Find the single most-overlapping bundle to swap with
-          let bestSwapId: string | null = null;
-          let bestArea = 0;
-          for (const ovId of overlapping) {
-            const o = snap.get(ovId)!;
-            const xOvlp = Math.max(0, Math.min(targetX + drag.bundle.lengthIn, o.x + o.bundle.lengthIn) - Math.max(targetX, o.x));
-            const zOvlp = Math.max(0, Math.min(targetZ + drag.bundle.widthIn, o.z + o.bundle.widthIn) - Math.max(targetZ, o.z));
-            const area = xOvlp * zOvlp;
-            if (area > bestArea) { bestArea = area; bestSwapId = ovId; }
-          }
-
-          if (bestSwapId) {
-            const swapEntry = snap.get(bestSwapId)!;
-            const dragEntry = snap.get(drag.bundleId)!;
-
-            // Save original positions of both bundles
-            const origDragX = dragEntry.x, origDragY = dragEntry.y, origDragZ = dragEntry.z;
-            const origSwapX = swapEntry.x, origSwapY = swapEntry.y, origSwapZ = swapEntry.z;
-
-            // Move swap bundle to dragged bundle's original position, with gravity
-            const swapNewX = Math.max(0, Math.min(origDragX, totalDeckLengthIn - swapEntry.bundle.lengthIn));
-            const swapNewZ = Math.max(0, Math.min(origDragZ, maxWidth - swapEntry.bundle.widthIn));
-            // Temporarily remove both bundles from snap for gravity calc
-            const bothIds = new Set([drag.bundleId, bestSwapId]);
-            const swapNewY = computeGravityY(swapNewX, swapNewZ, swapEntry.bundle, bothIds);
-
-            // Move dragged bundle to target position, with gravity (excluding both)
-            const dragNewY = computeGravityY(targetX, targetZ, drag.bundle, bothIds);
-
-            // Apply both positions
-            swapEntry.x = swapNewX; swapEntry.y = swapNewY; swapEntry.z = swapNewZ;
-            dragEntry.x = targetX; dragEntry.y = dragNewY; dragEntry.z = targetZ;
-
-            // Check for remaining overlap between the TWO swapped bundles
-            if (overlaps3D(dragEntry.x, dragEntry.y, dragEntry.z, drag.bundle,
-                           swapEntry.x, swapEntry.y, swapEntry.z, swapEntry.bundle)) {
-              // They still overlap (same footprint) — stack the higher one
-              if (dragNewY <= swapNewY) {
-                swapEntry.y = dragEntry.y + drag.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-              } else {
-                dragEntry.y = swapEntry.y + swapEntry.bundle.heightIn + DUNNAGE_HEIGHT_IN;
+            if (support.bundle.maxStackWeightLbs != null) {
+              const supportTop = support.y + support.bundle.heightIn + DUNNAGE_HEIGHT_IN;
+              let existingWeightAbove = 0;
+              for (const [otherId, other] of snap) {
+                if (otherId === drag.bundleId || otherId === id) continue;
+                if (other.y + eps >= supportTop && overlapsXZ(support.x, support.z, support.bundle, other.x, other.z, other.bundle)) {
+                  existingWeightAbove += other.bundle.totalWeightLbs;
+                }
+              }
+              if (existingWeightAbove + drag.bundle.totalWeightLbs > support.bundle.maxStackWeightLbs) {
+                window.alert(`Invalid placement: max stack weight exceeded for "${support.bundle.description}".`);
+                draggingRef.current = null;
+                dragPosRef.current = null;
+                shiftHeldRef.current = false;
+                if (orbitRef.current) orbitRef.current.enabled = true;
+                return;
               }
             }
-
-            // Validate both fit in truck
-            if (swapEntry.y + swapEntry.bundle.heightIn <= maxHeight + 0.5
-             && dragEntry.y + drag.bundle.heightIn <= maxHeight + 0.5) {
-              onBundleMove(bestSwapId, { x: swapEntry.x, y: swapEntry.y, z: swapEntry.z });
-              onBundleMove(drag.bundleId, { x: dragEntry.x, y: dragEntry.y, z: dragEntry.z });
-            } else {
-              // Revert — doesn't fit
-              swapEntry.x = origSwapX; swapEntry.y = origSwapY; swapEntry.z = origSwapZ;
-              dragEntry.x = origDragX; dragEntry.y = origDragY; dragEntry.z = origDragZ;
-            }
           }
         }
 
-        // ── CASCADING GRAVITY: settle any bundles that lost support ──
-        let gravChanged = true;
-        let gravIters = 0;
-        while (gravChanged && gravIters < 50) {
-          gravChanged = false;
-          gravIters++;
-          const sorted = [...snap.entries()].sort((a, b) => a[1].y - b[1].y);
-          for (const [bId, bp] of sorted) {
-            if (bp.y <= 0) continue;
-            let highestBelow = 0;
-            for (const [otherId, other] of snap) {
-              if (otherId === bId) continue;
-              const xO = bp.x + eps < other.x + other.bundle.lengthIn && bp.x + bp.bundle.lengthIn > other.x + eps;
-              const zO = bp.z + eps < other.z + other.bundle.widthIn && bp.z + bp.bundle.widthIn > other.z + eps;
-              if (xO && zO) {
-                const top = other.y + other.bundle.heightIn + DUNNAGE_HEIGHT_IN;
-                if (top <= bp.y + eps && top > highestBelow) highestBelow = top;
-              }
-            }
-            if (highestBelow < bp.y - 0.5) {
-              bp.y = highestBelow;
-              gravChanged = true;
-            }
-          }
-        }
-
-        // Emit final updates for any gravity-adjusted bundles
-        for (const [id, bp] of snap) {
-          const orig = positions.find(p => p.bundle.id === id);
-          if (orig && (Math.abs(orig.y - bp.y) > 0.01 || Math.abs(orig.x - bp.x) > 0.01 || Math.abs(orig.z - bp.z) > 0.01)) {
-            onBundleMove(id, { x: bp.x, y: bp.y, z: bp.z });
-          }
-        }
+        onBundleMove(drag.bundleId, { x: clampedX, y: targetY, z: clampedZ });
       }
 
       draggingRef.current = null;
@@ -665,7 +509,21 @@ function BundlesScene({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [gl, camera, dragPlane, verticalPlane, positions, maxWidth, maxHeight, totalDeckLengthIn, onBundleMove, orbitRef]);
+  }, [
+    gl,
+    camera,
+    dragPlane,
+    verticalPlane,
+    positions,
+    maxWidth,
+    maxHeight,
+    totalDeckLengthIn,
+    trailer.isMultiDeck,
+    trailer.leadDeckLengthFt,
+    trailer.pupDeckLengthFt,
+    onBundleMove,
+    orbitRef,
+  ]);
 
   return (
     <group>
@@ -694,8 +552,7 @@ export default function TruckViewer3D({
   const trailer = getAllTrailerSpecs()[truck.trailerType] ?? TRAILER_SPECS['53-flatbed'];
   const centerX = (trailer.deckLengthFt * 12 * SCALE) / 2;
   const centerZ = (trailer.internalWidthIn * SCALE) / 2;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const orbitRef = useRef<any>(null);
+  const orbitRef = useRef<OrbitControlsImpl | null>(null);
 
   // Escape key to deselect
   useEffect(() => {
@@ -726,7 +583,6 @@ export default function TruckViewer3D({
             onBundleSelect={onBundleSelect}
             onBundleMove={onBundleMove}
             orbitRef={orbitRef}
-            positionOverrides={truck.bundlePositions}
           />
           <OrbitControls ref={orbitRef} target={[centerX, 0.3, centerZ]} />
           <gridHelper args={[10, 20, '#333', '#222']} position={[centerX, -0.05, centerZ]} />

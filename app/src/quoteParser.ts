@@ -14,7 +14,8 @@ import type {
 // ============================================================
 // PDF.js worker – served from public/ directory
 // ============================================================
-GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+const appBasePath = import.meta.env.BASE_URL || '/';
+GlobalWorkerOptions.workerSrc = `${appBasePath}pdf.worker.min.mjs`;
 
 // ============================================================
 // Public API
@@ -245,8 +246,10 @@ function parseQuoteHeader(lines: string[], items: PositionedText[] = []): Omit<P
       }
 
       if (shipToLines.length > 0) {
-        // Ship-to: join all lines as the full address for the "Ship To:" field
-        shipToAddress = shipToLines.join(', ');
+        shipToName = shipToLines[0];
+        if (shipToLines.length > 1) {
+          shipToAddress = shipToLines.slice(1).join(', ');
+        }
       }
 
       // ── Extract Customer (sell-to): left column at the same vertical range ──
@@ -309,7 +312,8 @@ function parseQuoteHeader(lines: string[], items: PositionedText[] = []): Omit<P
     quoteNumber,
     documentDate,
     salesperson,
-    shipToName: customerName ?? shipToName,
+    customerName,
+    shipToName: shipToName ?? customerName,
     shipToAddress,
     totalWeight,
   };

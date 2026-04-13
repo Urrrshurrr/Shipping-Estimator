@@ -9,9 +9,32 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
-    img.onerror = (_e) => reject(new Error(`Failed to load image: ${src}`));
+    img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
     img.src = src;
   });
+}
+
+function sanitizeFilenamePart(input: string): string {
+  const blocked = '<>:"/\\|?*';
+  return input
+    .split('')
+    .map((ch) => {
+      const code = ch.charCodeAt(0);
+      return code < 32 || blocked.includes(ch) ? '-' : ch;
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function quoteCustomerName(quote?: ParsedQuote): string | undefined {
+  if (!quote) return undefined;
+  return quote.customerName ?? quote.shipToName;
+}
+
+function notifyExportWarnings(kind: string, warnings: string[]): void {
+  if (warnings.length === 0) return;
+  window.alert(`${kind} completed with warnings:\n- ${warnings.join('\n- ')}`);
 }
 
 interface ExportOptions {
@@ -25,6 +48,7 @@ export async function exportLoadPlanPDF(plan: LoadPlan, options: ExportOptions =
   const pageH = pdf.internal.pageSize.getHeight();
   const margin = 15;
   let y = margin;
+  const warnings: string[] = [];
 
   const addText = (text: string, size: number, bold = false, color: [number, number, number] = [0, 0, 0]) => {
     pdf.setFontSize(size);
@@ -59,6 +83,7 @@ export async function exportLoadPlanPDF(plan: LoadPlan, options: ExportOptions =
     pdf.addImage(logoImg, 'PNG', margin, y - 3, logoW, logoH);
     y += logoH;
   } catch {
+    warnings.push('Company logo could not be loaded; export used text-only header.');
     pdf.setFontSize(22);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(227, 24, 55);
@@ -120,8 +145,9 @@ export async function exportLoadPlanPDF(plan: LoadPlan, options: ExportOptions =
     if (quote.quoteNumber) {
       rowLines = Math.max(rowLines, drawInfoField('Quote Reference:', quote.quoteNumber, leftLabelX, leftValueX, maxLeftW, true));
     }
-    if (quote.shipToName) {
-      rowLines = Math.max(rowLines, drawInfoField('Customer:', quote.shipToName, rightLabelX, rightValueX, maxRightW, true));
+    const customer = quoteCustomerName(quote);
+    if (customer) {
+      rowLines = Math.max(rowLines, drawInfoField('Customer:', customer, rightLabelX, rightValueX, maxRightW, true));
     }
     y += lineH * rowLines + 1;
 
@@ -309,8 +335,10 @@ export async function exportLoadPlanPDF(plan: LoadPlan, options: ExportOptions =
       pdf.text('Perspective view — current camera angle', margin, y + clampedH + 3);
       y += clampedH + 8;
     } catch {
-      // WebGL canvas capture can fail in some browsers
+      warnings.push('3D viewport snapshot capture failed; PDF was generated without embedded image.');
     }
+  } else {
+    warnings.push('3D viewport canvas was not available; PDF was generated without embedded image.');
   }
 
   // ============================================================
@@ -363,10 +391,12 @@ export async function exportLoadPlanPDF(plan: LoadPlan, options: ExportOptions =
   }
 
   // Generate filename from quote number if available
-  const filename = quote?.quoteNumber
-    ? `load-plan-${quote.quoteNumber}.pdf`
+  const quoteRef = quote?.quoteNumber ? sanitizeFilenamePart(quote.quoteNumber) : '';
+  const filename = quoteRef
+    ? `load-plan-${quoteRef}.pdf`
     : 'load-plan.pdf';
   pdf.save(filename);
+  notifyExportWarnings('Load plan PDF export', warnings);
 }
 
 // ============================================================
@@ -500,6 +530,7 @@ export async function exportLoadingInstructionsPDF(
   let y = margin;
 
   const quote = options.quote;
+  const warnings: string[] = [];
 
   const checkPage = (needed: number) => {
     if (y + needed > pageH - margin - 10) {
@@ -516,6 +547,7 @@ export async function exportLoadingInstructionsPDF(
     pdf.addImage(logoImg, 'PNG', margin, y - 3, logoW, logoH);
     y += logoH;
   } catch {
+    warnings.push('Company logo could not be loaded; instructions export used text-only header.');
     pdf.setFontSize(22);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(227, 24, 55);
@@ -571,8 +603,9 @@ export async function exportLoadingInstructionsPDF(
   if (quote?.quoteNumber) {
     rowLines = Math.max(rowLines, drawField('Quote Reference:', quote.quoteNumber, leftLabelX, leftValueX, maxLeftW, true));
   }
-  if (quote?.shipToName) {
-    rowLines = Math.max(rowLines, drawField('Customer:', quote.shipToName, rightLabelX, rightValueX, maxRightW, true));
+  const customer = quoteCustomerName(quote);
+  if (customer) {
+    rowLines = Math.max(rowLines, drawField('Customer:', customer, rightLabelX, rightValueX, maxRightW, true));
   }
   y += lineH * rowLines + 1;
 
@@ -685,9 +718,10 @@ export async function exportLoadingInstructionsPDF(
     pdf.text(new Date().toLocaleDateString(), pageW - margin, pageH - 8, { align: 'right' });
   }
 
-  const quoteRef = quote?.quoteNumber ? `-${quote.quoteNumber}` : '';
+  const quoteRef = quote?.quoteNumber ? `-${sanitizeFilenamePart(quote.quoteNumber)}` : '';
   const filename = `loading-instructions-truck${truck.truckIndex + 1}${quoteRef}.pdf`;
   pdf.save(filename);
+  notifyExportWarnings('Loading instructions PDF export', warnings);
 }
 
 // ============================================================
@@ -703,6 +737,7 @@ export async function exportAllLoadingInstructionsPDF(
   const pageH = pdf.internal.pageSize.getHeight();
   const margin = 15;
   let y = margin;
+  const warnings: string[] = [];
 
   const quote = options.quote;
 
@@ -717,7 +752,9 @@ export async function exportAllLoadingInstructionsPDF(
   let logoImg: HTMLImageElement | null = null;
   try {
     logoImg = await loadImage('/NAS_Logo.png');
-  } catch { /* will fall back to text */ }
+  } catch {
+    warnings.push('Company logo could not be loaded; instructions export used text-only headers.');
+  }
 
   for (let t = 0; t < plan.trucks.length; t++) {
     const truck = plan.trucks[t];
@@ -787,8 +824,9 @@ export async function exportAllLoadingInstructionsPDF(
     if (quote?.quoteNumber) {
       rowLines = Math.max(rowLines, drawField('Quote Reference:', quote.quoteNumber, leftLabelX, leftValueX, maxLeftW, true));
     }
-    if (quote?.shipToName) {
-      rowLines = Math.max(rowLines, drawField('Customer:', quote.shipToName, rightLabelX, rightValueX, maxRightW, true));
+    const customer = quoteCustomerName(quote);
+    if (customer) {
+      rowLines = Math.max(rowLines, drawField('Customer:', customer, rightLabelX, rightValueX, maxRightW, true));
     }
     y += infoLineH * rowLines + 1;
 
@@ -897,7 +935,8 @@ export async function exportAllLoadingInstructionsPDF(
     pdf.text(new Date().toLocaleDateString(), pageW - margin, pageH - 8, { align: 'right' });
   }
 
-  const quoteRef = quote?.quoteNumber ? `-${quote.quoteNumber}` : '';
+  const quoteRef = quote?.quoteNumber ? `-${sanitizeFilenamePart(quote.quoteNumber)}` : '';
   const filename = `loading-instructions-all-trucks${quoteRef}.pdf`;
   pdf.save(filename);
+  notifyExportWarnings('All-trucks loading instructions PDF export', warnings);
 }

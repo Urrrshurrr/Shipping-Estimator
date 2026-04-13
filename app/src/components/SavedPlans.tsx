@@ -9,7 +9,7 @@ interface Props {
   orderItems: OrderItem[];
   loadPlan: LoadPlan | null;
   quote?: ParsedQuote | null;
-  onLoadPlan: (plan: SavedPlan) => void;
+  onLoadPlan: (plan: SavedPlan) => boolean | void;
   action?: 'save' | 'load' | null;
   onActionHandled?: () => void;
 }
@@ -20,7 +20,9 @@ export default function SavedPlans({ trailerType, autoMode, orderItems, loadPlan
   const [saveName, setSaveName] = useState('');
   const [showSaveForm, setShowSaveForm] = useState(false);
 
-  // Respond to action triggers from the tab bar
+  // Respond to action triggers from the tab bar.
+  // This effect intentionally synchronizes internal UI state from external action props.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!action) return;
     if (action === 'save') {
@@ -36,13 +38,20 @@ export default function SavedPlans({ trailerType, autoMode, orderItems, loadPlan
       setShowSaveForm(false);
     }
     onActionHandled?.();
-  }, [action]);
+  }, [action, onActionHandled, quote?.quoteNumber]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSave = () => {
     if (!saveName.trim()) return;
 
+    const normalized = saveName.trim().toLowerCase();
+    const existing = plans.find((p) => p.name.trim().toLowerCase() === normalized);
+    if (existing && !window.confirm(`A saved plan named "${existing.name}" already exists. Overwrite it?`)) {
+      return;
+    }
+
     const plan: SavedPlan = {
-      id: `plan-${Date.now()}`,
+      id: existing?.id ?? `plan-${Date.now()}`,
       name: saveName.trim(),
       trailerType,
       autoMode,
@@ -64,8 +73,10 @@ export default function SavedPlans({ trailerType, autoMode, orderItems, loadPlan
   };
 
   const handleLoad = (plan: SavedPlan) => {
-    onLoadPlan(plan);
-    setShowList(false);
+    const loaded = onLoadPlan(plan);
+    if (loaded !== false) {
+      setShowList(false);
+    }
   };
 
   const formatDate = (iso: string) => {

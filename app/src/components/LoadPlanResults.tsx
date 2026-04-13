@@ -160,7 +160,7 @@ function WeightDistributionDiagram({ axleWeights, truck }: { axleWeights: AxleWe
       {truck.totalWeightLbs > 0 && (
         <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
           Center of gravity: {Math.round(axleWeights.centerOfGravity.longitudinalIn)}" from front
-          ({axleWeights.centerOfGravity.longitudinalPct.toFixed(1)}% of deck length)
+          ({axleWeights.centerOfGravity.longitudinalPct.toFixed(1)}% of {trailer.isMultiDeck ? 'combined deck length' : 'deck length'})
         </div>
       )}
     </div>

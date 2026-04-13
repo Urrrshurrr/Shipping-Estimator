@@ -23,6 +23,7 @@ const emptyCustom: Omit<TrailerSpec, 'type'> = {
   rearAxlePositionIn: 536,
   maxKingpinWeightLbs: 12000,
   maxAxleWeightLbs: 34000,
+  pupMaxAxleWeightLbs: 34000,
   isCustom: true,
 };
 
@@ -41,8 +42,23 @@ function TrailerEditor({ initial, onSave, onCancel }: {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.label.trim()) return;
+
+    if (form.isMultiDeck) {
+      const lead = form.leadDeckLengthFt ?? 0;
+      const pup = form.pupDeckLengthFt ?? 0;
+      const pupAxle = form.pupAxlePositionIn ?? 0;
+      const pupMax = form.pupMaxAxleWeightLbs ?? 0;
+      if (lead <= 0 || pup <= 0 || pupAxle <= 0 || pupMax <= 0) {
+        window.alert('Multi-deck trailers require lead/pup lengths, pup axle position, and pup axle max weight.');
+        return;
+      }
+    }
+
     const type = initial?.type ?? `custom-${Date.now()}`;
-    onSave({ ...form, type, isCustom: true });
+    const deckLengthFt = form.isMultiDeck
+      ? (form.leadDeckLengthFt ?? 0) + (form.pupDeckLengthFt ?? 0)
+      : form.deckLengthFt;
+    onSave({ ...form, deckLengthFt, type, isCustom: true });
   };
 
   return (
@@ -131,6 +147,20 @@ function TrailerEditor({ initial, onSave, onCancel }: {
             <label>Pup Axle Pos (in)</label>
             <input type="number" value={form.pupAxlePositionIn ?? 284} min={50} max={500}
               onChange={e => set('pupAxlePositionIn', +e.target.value)} />
+          </div>
+        </div>
+      )}
+
+      {form.isMultiDeck && (
+        <div className="form-row" style={{ marginTop: 8 }}>
+          <div>
+            <label>Pup Max Axle (lbs)</label>
+            <input type="number" value={form.pupMaxAxleWeightLbs ?? 34000} min={1000} max={80000}
+              onChange={e => set('pupMaxAxleWeightLbs', +e.target.value)} />
+          </div>
+          <div>
+            <label>Total Deck Length (ft)</label>
+            <input type="number" value={(form.leadDeckLengthFt ?? 0) + (form.pupDeckLengthFt ?? 0)} disabled />
           </div>
         </div>
       )}

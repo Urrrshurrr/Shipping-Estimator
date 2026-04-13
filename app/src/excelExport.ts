@@ -7,6 +7,19 @@ interface ExcelExportOptions {
   quote?: ParsedQuote;
 }
 
+function sanitizeFilenamePart(input: string): string {
+  const blocked = '<>:"/\\|?*';
+  return input
+    .split('')
+    .map((ch) => {
+      const code = ch.charCodeAt(0);
+      return code < 32 || blocked.includes(ch) ? '-' : ch;
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function exportLoadPlanExcel(plan: LoadPlan, options: ExcelExportOptions = {}): void {
   const wb = XLSX.utils.book_new();
 
@@ -20,8 +33,9 @@ export function exportLoadPlanExcel(plan: LoadPlan, options: ExcelExportOptions 
 
   if (options.quote) {
     const q = options.quote;
+    const customer = q.customerName ?? q.shipToName;
     if (q.quoteNumber) summaryData.push(['Quote Reference', q.quoteNumber]);
-    if (q.shipToName) summaryData.push(['Customer', q.shipToName]);
+    if (customer) summaryData.push(['Customer', customer]);
     if (q.shipToAddress) summaryData.push(['Ship To', q.shipToAddress]);
     if (q.documentDate) summaryData.push(['Date', q.documentDate]);
     if (q.salesperson) summaryData.push(['Salesperson', q.salesperson]);
@@ -158,8 +172,9 @@ export function exportLoadPlanExcel(plan: LoadPlan, options: ExcelExportOptions 
   XLSX.utils.book_append_sheet(wb, seqSheet, 'Loading Sequence');
 
   // Generate filename
-  const filename = options.quote?.quoteNumber
-    ? `load-plan-${options.quote.quoteNumber}.xlsx`
+  const quoteRef = options.quote?.quoteNumber ? sanitizeFilenamePart(options.quote.quoteNumber) : '';
+  const filename = quoteRef
+    ? `load-plan-${quoteRef}.xlsx`
     : 'load-plan.xlsx';
 
   XLSX.writeFile(wb, filename);

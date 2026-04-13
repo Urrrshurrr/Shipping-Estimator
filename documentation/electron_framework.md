@@ -99,6 +99,10 @@ contextBridge.exposeInMainWorld('electronStorage', {
   remove:      (key: string) => ipcRenderer.invoke('storage:remove', key),
   getDataPath: () => ipcRenderer.invoke('storage:getDataPath'),
 });
+
+contextBridge.exposeInMainWorld('appRuntime', {
+  isElectron: true,
+});
 ```
 
 #### `electron/tsconfig.json` — Electron TypeScript Config
@@ -123,10 +127,10 @@ This is the core change. The storage module now provides a **dual-mode abstracti
 
 - **`initStorage()`** — Called once at app startup (before React renders). Loads all known storage keys from disk into an in-memory `cache` object via async IPC calls. This is the only async operation.
 - **`storageGet(key)`** — Synchronous read from the in-memory cache. No IPC call needed.
-- **`storageSet(key, value)`** — Synchronous write to cache + **fire-and-forget** async IPC call to flush to disk.
-- **`storageRemove(key)`** — Synchronous cache delete + fire-and-forget async IPC call to remove the file.
+- **`storageSet(key, value)`** — Synchronous cache update plus a queued async disk write.
+- **`storageRemove(key)`** — Synchronous cache delete plus a queued async disk remove.
 
-This "cache + async flush" pattern means all existing consumers (Product Library, Saved Plans, Auto-save, Custom Trailers) continue to work without any changes — they call the same synchronous functions as before.
+Writes are serialized through an internal queue to reduce race conditions during rapid auto-save updates. Storage failures are surfaced through an error notification hook so the UI can show persistence warnings.
 
 **Storage keys hydrated at init:**
 
@@ -158,7 +162,7 @@ In browser mode, `initStorage()` is a no-op that resolves immediately.
 The service worker registration is now skipped when running inside Electron:
 
 ```javascript
-if ('serviceWorker' in navigator && !window.electronStorage) {
+if ('serviceWorker' in navigator && !(window.appRuntime && window.appRuntime.isElectron)) {
   // register SW only in browser mode
 }
 ```

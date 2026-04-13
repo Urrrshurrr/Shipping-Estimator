@@ -405,6 +405,10 @@ function tryPlaceBundleWithStacking(
   const maxWidth = trailer.internalWidthIn;
   const maxHeight = trailer.internalHeightIn;
 
+  if (bundle.widthIn > maxWidth || bundle.heightIn > maxHeight) {
+    return false;
+  }
+
   // Weight check
   if (packing.truck.totalWeightLbs + bundle.totalWeightLbs > trailer.maxPayloadLbs) {
     return false;
@@ -455,11 +459,13 @@ function tryPlaceBundleWithStacking(
   }
 
   // Strategy 2: Stack on top of an existing slot (fill height before length).
-  // Prefer slots with the same category for load stability.
+  // Only same-category stacks are allowed for load stability.
   // Respects stacking constraints: nonStackable, maxStackWeightLbs (cumulative).
   let bestSlot: StackSlot | null = null;
-  let bestIsSameCategory = false;
   for (const slot of packing.slots) {
+    const slotCategory = slot.bundles[0]?.category;
+    if (slotCategory !== bundle.category) continue;
+
     // Check stacking constraints: top bundle must allow stacking
     const topBundle = slot.bundles[slot.bundles.length - 1];
     if (topBundle?.nonStackable) continue;
@@ -479,12 +485,9 @@ function tryPlaceBundleWithStacking(
     if (bundle.lengthIn <= slot.lengthIn && bundle.widthIn <= slot.widthIn) {
       const newHeight = slot.totalHeight + DUNNAGE_HEIGHT_IN + bundle.heightIn;
       if (newHeight <= maxHeight) {
-        const slotCategory = slot.bundles[0]?.category;
-        const sameCategory = slotCategory === bundle.category;
-        // Prefer same-category; among equals pick the first found
-        if (!bestSlot || (sameCategory && !bestIsSameCategory)) {
+        // Choose the lowest eligible stack for better stability.
+        if (!bestSlot || slot.totalHeight < bestSlot.totalHeight) {
           bestSlot = slot;
-          bestIsSameCategory = sameCategory;
         }
       }
     }
@@ -502,6 +505,7 @@ function tryPlaceBundleWithStacking(
   for (let di = 0; di < decks.length; di++) {
     const deck = decks[di];
     if (bundle.lengthIn > deck.lengthIn) continue;
+    if (bundle.widthIn > maxWidth) continue;
 
     // Calculate used length on this specific deck
     const deckSlots = packing.slots.filter(s => s.deckIndex === di);
@@ -706,9 +710,10 @@ export function computeBundleLayoutPositions(
 
     // Try stacking on existing slots (respects stacking constraints)
     let bestSlotIdx = -1;
-    let bestIsSameCategory = false;
     for (let si = 0; si < slots.length; si++) {
       const slot = slots[si];
+      if (slot.category !== b.category) continue;
+
       // Check stacking constraints
       if (slot.topBundle?.nonStackable) continue;
       if (slot.topBundle?.maxStackWeightLbs != null && b.totalWeightLbs > slot.topBundle.maxStackWeightLbs) continue;
@@ -716,10 +721,8 @@ export function computeBundleLayoutPositions(
       if (b.lengthIn <= slot.lengthIn && b.widthIn <= slot.widthIn) {
         const newHeight = slot.stackHeight + DUNNAGE_HEIGHT_IN + b.heightIn;
         if (newHeight <= maxHeight) {
-          const sameCategory = slot.category === b.category;
-          if (bestSlotIdx < 0 || (sameCategory && !bestIsSameCategory)) {
+          if (bestSlotIdx < 0 || slot.stackHeight < slots[bestSlotIdx].stackHeight) {
             bestSlotIdx = si;
-            bestIsSameCategory = sameCategory;
           }
         }
       }
@@ -736,6 +739,7 @@ export function computeBundleLayoutPositions(
     for (let di = 0; di < decks.length; di++) {
       const deck = decks[di];
       if (b.lengthIn > deck.lengthIn) continue;
+      if (b.widthIn > maxWidth) continue;
 
       const deckRows = rows.filter(r => r.deckIndex === di);
       const usedOnDeck = deckRows.length > 0

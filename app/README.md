@@ -1,73 +1,32 @@
-# React + TypeScript + Vite
+# NAS Shipping Estimator (Electron + React)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Desktop load-planning application for North American Steel.
 
-Currently, two official plugins are available:
+## Runtime Model
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Renderer: React + TypeScript + Vite
+- Desktop shell: Electron
+- Storage: Electron IPC file storage (browser mode falls back to localStorage)
+- Core features: quote import, bundle planning, 3D visualization/editing, PDF/Excel export
 
-## React Compiler
+## Commands
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Run from this `app/` directory.
 
-## Expanding the ESLint configuration
+- `npm install` - install dependencies
+- `npm run dev` - run Vite + Electron development workflow
+- `npm run lint` - lint source files
+- `npm run build` - type-check and build renderer/electron outputs
+- `npm run build:electron` - build packaged Windows installer via electron-builder
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Build Outputs
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- `dist/` - renderer build
+- `dist-electron/` - Electron main/preload builds
+- `release/` - packaged app output (`build:electron`)
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Notes
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- Trailer and bundle logic is implemented in `src/algorithm.ts` and `src/data.ts`.
+- If manufacturing bundle counts and dimensions are being re-measured, treat those rule values as provisional until updated.
+- Use `documentation/update_plan.md` as the active remediation roadmap.

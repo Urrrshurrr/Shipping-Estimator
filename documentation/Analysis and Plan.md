@@ -1,5 +1,11 @@
 # **Technical Analysis and Algorithmic Roadmap for the Industrial Racking Manufacturing and Logistics Sector**
 
+> **Historical Context:** This document is retained as background research.
+>
+> **Not authoritative for runtime architecture:** The implemented app is Electron-first (not SPFx-first).
+>
+> **Not authoritative for bundle-count measurements:** physical bundle counts/dimensions are being re-verified and should come from current plant measurements before logic updates.
+
 The industrial racking industry serves as the structural backbone of global commerce, providing the essential infrastructure required for the high-density storage and efficient throughput of goods. Within this sector, the manufacturing of racking components—specifically frames, beams, and associated hardware—is governed by a complex set of engineering standards, metallurgical constraints, and logistical variables. The transition toward automated, AI-driven logistical planning represents a pivotal advancement in operational efficiency. This report provides an exhaustive technical analysis of racking component specifications, packaging methodologies, and North American transportation regulations, culminating in a comprehensive guide for the development of a visualized computational agent designed to optimize truck-load planning.
 
 ## **1\. Structural Foundations and Metallurgical Specifications**

@@ -270,6 +270,7 @@ export interface ParsedQuote {
   quoteNumber: string;
   documentDate?: string;
   salesperson?: string;
+  customerName?: string;
   shipToName?: string;
   shipToAddress?: string;
   totalWeight?: number;

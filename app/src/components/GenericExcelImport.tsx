@@ -91,11 +91,11 @@ export default function GenericExcelImport({ onImport }: Props) {
       cols[lower.findIndex(l => patterns.some(p => l.includes(p)))] ?? '';
 
     setMapping({
-      description: find(['description', 'desc', 'name', 'item', 'product']),
-      quantity: find(['quantity', 'qty', 'count', 'amount']),
-      weight: find(['weight', 'lbs', 'mass', 'gross weight']),
-      length: find(['length', 'size', 'dimension']),
-      category: find(['category', 'type', 'group']),
+      description: find(['description', 'desc', 'name', 'item', 'product', 'part', 'sku', 'material']),
+      quantity: find(['quantity', 'qty', 'count', 'amount', 'pieces', 'piece', 'units', 'pcs']),
+      weight: find(['weight', 'lbs', 'lb', 'mass', 'gross weight', 'unit weight']),
+      length: find(['length', 'len', 'size', 'dimension', 'span', 'height']),
+      category: find(['category', 'type', 'group', 'class', 'product type']),
     });
   };
 

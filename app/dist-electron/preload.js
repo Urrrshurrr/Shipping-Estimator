@@ -1,14 +1,8 @@
-import { contextBridge, ipcRenderer } from "electron";
-//#region electron/preload.ts
-/**
-* Expose a safe `electronStorage` API to the renderer process.
-* This replaces localStorage with file-system-backed storage
-* via IPC calls to the main process.
-*/
-contextBridge.exposeInMainWorld("electronStorage", {
-	get: (key) => ipcRenderer.invoke("storage:get", key),
-	set: (key, value) => ipcRenderer.invoke("storage:set", key, value),
-	remove: (key) => ipcRenderer.invoke("storage:remove", key),
-	getDataPath: () => ipcRenderer.invoke("storage:getDataPath")
-});
+import { contextBridge as e, ipcRenderer as t } from "electron";
+e.exposeInMainWorld("electronStorage", {
+	get: (e) => t.invoke("storage:get", e),
+	set: (e, n) => t.invoke("storage:set", e, n),
+	remove: (e) => t.invoke("storage:remove", e),
+	getDataPath: () => t.invoke("storage:getDataPath")
+}), e.exposeInMainWorld("appRuntime", { isElectron: !0 });
 //#endregion

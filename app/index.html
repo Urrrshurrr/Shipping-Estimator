@@ -15,7 +15,7 @@
     <script type="module" src="/src/main.tsx"></script>
     <script>
       // Only register service worker in browser mode (not Electron)
-      if ('serviceWorker' in navigator && !window.electronStorage) {
+      if ('serviceWorker' in navigator && !(window.appRuntime && window.appRuntime.isElectron)) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').then((reg) => {
             // Check for updates periodically (every 60 minutes)

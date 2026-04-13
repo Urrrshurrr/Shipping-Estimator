@@ -1,5 +1,11 @@
 # Competitive Analysis & Feature Improvement Roadmap
 
+> **Historical Log:** This file documents prior feature planning/completion notes.
+>
+> **Branding note:** Some sections reference legacy naming (`NASECO`) and should be interpreted as historical text.
+>
+> **Current execution plan:** See `documentation/update_plan.md` for active correction work and priorities.
+
 ## TL;DR
 
 After analyzing 4 competing platforms (Cargo-Planner, EasyCargo, Goodloading, CubeMaster/Logensol) and comparing them against the current NASECO Shipping Estimator, this plan identifies 6 priority improvement phases across 25 implementation steps. The biggest competitive differentiator is **automated quote-to-load-plan generation** from Business Central PDF/Excel uploads — a capability no competitor offers. Other high-value gaps include interactive 3D editing, axle weight distribution, step-by-step loading instructions, and persistent product/plan libraries.

@@ -1,5 +1,11 @@
 # Racking Shipping Estimator — Complete Technical Reference
 
+> **Current Status (April 2026):** This project is Electron-first. Browser mode is compatibility-only.
+> 
+> **Important:** Bundle-count and physical-dimension tables are currently being re-measured from plant/packaging data. Treat manufacturing bundle-size values in this document as provisional until measurement updates are merged.
+>
+> **Roadmap Source:** Active correction work is tracked in `documentation/update_plan.md`.
+
 > **Purpose:** This document provides a complete, exhaustive reference for the entire Shipping Estimator codebase. It is designed so that any AI agent or developer can pick up work anywhere in the project with full understanding of the architecture, data models, algorithms, UI components, and extension points.
 
 ---
@@ -26,7 +32,7 @@
 
 ## 1. Project Overview
 
-The Shipping Estimator is a **single-page web application** that helps a racking manufacturer estimate how many trucks are needed to ship an order of industrial racking components (frames, beams, and accessories).
+The Shipping Estimator is an **Electron desktop application** (with a browser compatibility mode) that helps a racking manufacturer estimate how many trucks are needed to ship an order of industrial racking components (frames, beams, and accessories).
 
 ### What the user does:
 1. **Selects a trailer type** (or enables auto-selection).
@@ -57,7 +63,7 @@ The Shipping Estimator is a **single-page web application** that helps a racking
 | Canvas Capture | html2canvas | 1.x | Screenshot of DOM/canvas for PDF embedding |
 | Icons | lucide-react | 0.577.x | SVG icon components |
 
-All dependencies are listed in `app/package.json`. There is **no backend** — everything runs client-side in the browser.
+All dependencies are listed in `app/package.json`. There is **no backend service** — planning logic runs client-side in the renderer, while desktop persistence is handled through Electron main-process IPC.
 
 ---
 
@@ -113,10 +119,9 @@ All commands run from the `app/` directory.
 | `npm run lint` | Run ESLint |
 
 ### Deployment
-The production build outputs static files to `app/dist/` (HTML + JS + CSS). These can be deployed to:
-- Any static web host (Nginx, Apache, S3, Azure Blob Storage)
-- SharePoint by uploading `dist/` contents to a document library and referencing `index.html`
-- A SharePoint Framework (SPFx) web part wrapper (would require additional scaffolding)
+Primary distribution is Electron packaging via `npm run build:electron`, which produces desktop artifacts in `app/release/`.
+
+Renderer static output in `app/dist/` can still be served in browser mode for compatibility/testing, but Electron desktop is the supported runtime target.
 
 ---
 

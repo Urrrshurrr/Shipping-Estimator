@@ -15,3 +15,7 @@ contextBridge.exposeInMainWorld('electronStorage', {
   getDataPath: (): Promise<string> =>
     ipcRenderer.invoke('storage:getDataPath'),
 });
+
+contextBridge.exposeInMainWorld('appRuntime', {
+  isElectron: true,
+});

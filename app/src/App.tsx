@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Calculator, FileDown, FileSpreadsheet, RotateCcw, ClipboardList, Box, Package, Save, FolderOpen } from 'lucide-react';
 import TruckSelector from './components/TruckSelector';
 import OrderForm from './components/OrderForm';
@@ -10,57 +10,97 @@ import { exportLoadPlanPDF, exportAllLoadingInstructionsPDF } from './pdfExport'
 import { exportLoadPlanExcel } from './excelExport';
 import { TRAILER_SPECS, getAllTrailerSpecs } from './data';
 import { parseQuoteFile, parsedQuoteToOrderItems } from './quoteParser';
-import { loadAutoSave, saveAutoSave, clearAutoSave, type SavedPlan } from './storage';
+import { loadAutoSave, saveAutoSave, clearAutoSave, onStorageError, type SavedPlan } from './storage';
 import type { OrderItem, TrailerType, LoadPlan, ParsedQuote, TruckLoad } from './types';
 
+function validateOrderItems(items: OrderItem[]): string[] {
+  const errors: string[] = [];
+  for (const item of items) {
+    if (!item.description.trim()) {
+      errors.push('Every item must include a description before calculation.');
+      continue;
+    }
+    if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+      errors.push(`"${item.description}" has an invalid quantity.`);
+      continue;
+    }
+    if (!Number.isFinite(item.lengthIn) || item.lengthIn <= 0) {
+      errors.push(`"${item.description}" has an invalid shipping length.`);
+      continue;
+    }
+    if (item.category === 'frame') {
+      const width = item.frameWidthIn ?? 0;
+      if (!Number.isFinite(width) || width <= 0) {
+        errors.push(`"${item.description}" is missing frame width.`);
+      }
+    }
+    if (item.category === 'beam') {
+      const beamLength = item.beamLengthIn ?? item.lengthIn;
+      if (!Number.isFinite(beamLength) || beamLength <= 0) {
+        errors.push(`"${item.description}" is missing beam length.`);
+      }
+    }
+  }
+  return errors;
+}
+
 function App() {
-  const [trailerType, setTrailerType] = useState<TrailerType>('53-flatbed');
-  const [autoMode, setAutoMode] = useState(false);
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
-  const [loadPlan, setLoadPlan] = useState<LoadPlan | null>(null);
-  const [selectedTrailerLabel, setSelectedTrailerLabel] = useState('');
+  const initialAutoSave = useMemo(() => loadAutoSave(), []);
+
+  const [trailerType, setTrailerType] = useState<TrailerType>(initialAutoSave?.trailerType ?? '53-flatbed');
+  const [autoMode, setAutoMode] = useState(initialAutoSave?.autoMode ?? false);
+  const [orderItems, setOrderItems] = useState<OrderItem[]>(initialAutoSave?.orderItems ?? []);
+  const [loadPlan, setLoadPlan] = useState<LoadPlan | null>(initialAutoSave?.loadPlan ?? null);
+  const [selectedTrailerLabel, setSelectedTrailerLabel] = useState(
+    initialAutoSave?.loadPlan
+      ? (getAllTrailerSpecs()[initialAutoSave.trailerType]?.label ?? initialAutoSave.trailerType)
+      : '',
+  );
   const [viewingTruckIdx, setViewingTruckIdx] = useState(0);
   const [importStatus, setImportStatus] = useState<string | null>(null);
-  const [parsedQuote, setParsedQuote] = useState<ParsedQuote | null>(null);
+  const [parsedQuote, setParsedQuote] = useState<ParsedQuote | null>(initialAutoSave?.quote ?? null);
   const [selectedBundleId, setSelectedBundleId] = useState<string | null>(null);
-  const [bundlePositions, setBundlePositions] = useState<Record<number, Record<string, { x: number; y: number; z: number }>>>({});
+  const [appStatus, setAppStatus] = useState<string | null>(null);
+  const [storageStatus, setStorageStatus] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<number>(0);
   const [savedPlansAction, setSavedPlansAction] = useState<'save' | 'load' | null>(null);
 
-
-
-  // Restore auto-saved state on mount
   useEffect(() => {
-    const saved = loadAutoSave();
-    if (saved && saved.orderItems.length > 0) {
-      setTrailerType(saved.trailerType);
-      setAutoMode(saved.autoMode);
-      setOrderItems(saved.orderItems);
-      setLoadPlan(saved.loadPlan);
-      setParsedQuote(saved.quote ?? null);
-      if (saved.loadPlan) {
-        setSelectedTrailerLabel(getAllTrailerSpecs()[saved.trailerType]?.label ?? saved.trailerType);
-      }
-    }
+    const unsubscribe = onStorageError((error) => {
+      setStorageStatus(`Storage ${error.operation} failed for ${error.key}. ${error.message}`);
+    });
+    return unsubscribe;
   }, []);
-
   // Auto-save whenever order items or load plan change
   useEffect(() => {
     if (orderItems.length > 0) {
-      saveAutoSave({
-        trailerType,
-        autoMode,
-        orderItems,
-        loadPlan,
-        quote: parsedQuote ?? undefined,
-        savedAt: new Date().toISOString(),
-      });
+      const timer = window.setTimeout(() => {
+        saveAutoSave({
+          trailerType,
+          autoMode,
+          orderItems,
+          loadPlan,
+          quote: parsedQuote ?? undefined,
+          savedAt: new Date().toISOString(),
+        });
+      }, 800);
+      return () => window.clearTimeout(timer);
     }
   }, [trailerType, autoMode, orderItems, loadPlan, parsedQuote]);
 
   const handleCalculate = () => {
     if (orderItems.length === 0) return;
+    const errors = validateOrderItems(orderItems);
+    if (errors.length > 0) {
+      setAppStatus(errors[0]);
+      return;
+    }
+
+    const hadManualOverrides = loadPlan?.trucks.some(
+      (truck) => !!truck.bundlePositions && Object.keys(truck.bundlePositions).length > 0,
+    ) ?? false;
+    setAppStatus(null);
 
     if (autoMode) {
       const { plan, selectedTrailer } = calculateOptimizedLoadPlan(orderItems);
@@ -74,18 +114,25 @@ function App() {
     }
     setViewingTruckIdx(0);
     setSelectedBundleId(null);
-    setBundlePositions({});
     setActiveTab(1);
+
+    if (hadManualOverrides) {
+      setAppStatus('Recalculation reset manual 3D bundle positions.');
+    }
   };
 
   const handleReset = () => {
+    if ((orderItems.length > 0 || loadPlan) && !window.confirm('Reset current order and load plan? Any unsaved changes will be lost.')) {
+      return;
+    }
     setOrderItems([]);
     setLoadPlan(null);
     setSelectedTrailerLabel('');
     setViewingTruckIdx(0);
     setSelectedBundleId(null);
-    setBundlePositions({});
     setParsedQuote(null);
+    setAppStatus(null);
+    setImportStatus(null);
     clearAutoSave();
   };
 
@@ -123,9 +170,25 @@ function App() {
         setImportStatus('No product line items found in this file.');
         return;
       }
+
+      const filteredOut = Math.max(0, quote.lineItems.length - items.length);
+      const customerLabel = quote.customerName ?? quote.shipToName ?? 'Unknown customer';
+      const replaceNote = orderItems.length > 0 ? '\n\nThis import will replace your current order items.' : '';
+      const confirmed = window.confirm(
+        `Quote: ${quote.quoteNumber || 'N/A'}\nCustomer: ${customerLabel}\nImportable items: ${items.length}`
+          + (filteredOut > 0 ? `\nFiltered service/unsupported lines: ${filteredOut}` : '')
+          + replaceNote
+          + '\n\nApply this import?',
+      );
+      if (!confirmed) {
+        setImportStatus('Import canceled.');
+        return;
+      }
+
       setOrderItems(items);
       setLoadPlan(null);
       setParsedQuote(quote);
+      setAppStatus(null);
       const label = quote.quoteNumber ? ` from quote ${quote.quoteNumber}` : '';
       setImportStatus(`Imported ${items.length} item${items.length > 1 ? 's' : ''}${label}`);
     } catch (err) {
@@ -134,11 +197,6 @@ function App() {
   };
 
   const currentTruck = loadPlan?.trucks[viewingTruckIdx] ?? null;
-
-  // Apply position overrides to the current truck
-  const currentTruckWithPositions: TruckLoad | null = currentTruck
-    ? { ...currentTruck, bundlePositions: bundlePositions[viewingTruckIdx] }
-    : null;
 
   // Recalculate truck stats from bundles
   const recalcTruckStats = (truck: TruckLoad): TruckLoad => {
@@ -163,13 +221,20 @@ function App() {
   }, []);
 
   const handleBundleMove = useCallback((bundleId: string, newPos: { x: number; y: number; z: number }) => {
-    setBundlePositions(prev => ({
-      ...prev,
-      [viewingTruckIdx]: {
-        ...prev[viewingTruckIdx],
-        [bundleId]: newPos,
-      },
-    }));
+    setLoadPlan(prev => {
+      if (!prev) return prev;
+      const trucks = prev.trucks.map((truck, index) => {
+        if (index !== viewingTruckIdx) return truck;
+        return {
+          ...truck,
+          bundlePositions: {
+            ...(truck.bundlePositions ?? {}),
+            [bundleId]: newPos,
+          },
+        };
+      });
+      return { ...prev, trucks };
+    });
   }, [viewingTruckIdx]);
 
   const handleMoveBundleToTruck = useCallback((bundleId: string, targetTruckIdx: number) => {
@@ -187,24 +252,21 @@ function App() {
     if (targetTruck.totalWeightLbs + bundle.totalWeightLbs > trailer.maxPayloadLbs) return;
 
     const newTrucks = loadPlan.trucks.map((t, i) => {
-      if (i === sourceTruckIdx) return recalcTruckStats({ ...t, bundles: t.bundles.filter(b => b.id !== bundleId) });
-      if (i === targetTruckIdx) return recalcTruckStats({ ...t, bundles: [...t.bundles, bundle] });
+      if (i === sourceTruckIdx) {
+        const nextPositions = { ...(t.bundlePositions ?? {}) };
+        delete nextPositions[bundleId];
+        return recalcTruckStats({ ...t, bundles: t.bundles.filter(b => b.id !== bundleId), bundlePositions: nextPositions });
+      }
+      if (i === targetTruckIdx) {
+        const nextPositions = { ...(t.bundlePositions ?? {}) };
+        delete nextPositions[bundleId];
+        return recalcTruckStats({ ...t, bundles: [...t.bundles, bundle], bundlePositions: nextPositions });
+      }
       return t;
     }).filter(t => t.bundles.length > 0).map((t, i) => ({ ...t, truckIndex: i }));
 
     setLoadPlan({ ...loadPlan, trucks: newTrucks });
     setSelectedBundleId(null);
-
-    // Clear position overrides for moved bundle
-    setBundlePositions(prev => {
-      const updated = { ...prev };
-      if (updated[sourceTruckIdx]) {
-        const { [bundleId]: _removed, ...rest } = updated[sourceTruckIdx];
-        void _removed;
-        updated[sourceTruckIdx] = rest;
-      }
-      return updated;
-    });
 
     // Switch to target truck view (adjust index after filtering)
     const newIdx = newTrucks.findIndex(t =>
@@ -213,7 +275,10 @@ function App() {
     setViewingTruckIdx(newIdx >= 0 ? newIdx : 0);
   }, [loadPlan, viewingTruckIdx]);
 
-  const handleLoadSavedPlan = useCallback((saved: SavedPlan) => {
+  const handleLoadSavedPlan = useCallback((saved: SavedPlan): boolean => {
+    if ((orderItems.length > 0 || loadPlan) && !window.confirm('Load this saved plan and replace current work?')) {
+      return false;
+    }
     setTrailerType(saved.trailerType);
     setAutoMode(saved.autoMode);
     setOrderItems(saved.orderItems);
@@ -221,14 +286,15 @@ function App() {
     setParsedQuote(saved.quote ?? null);
     setViewingTruckIdx(0);
     setSelectedBundleId(null);
-    setBundlePositions({});
     if (saved.loadPlan) {
       setSelectedTrailerLabel(getAllTrailerSpecs()[saved.trailerType]?.label ?? saved.trailerType);
     } else {
       setSelectedTrailerLabel('');
     }
     setImportStatus(null);
-  }, []);
+    setAppStatus(null);
+    return true;
+  }, [orderItems.length, loadPlan]);
 
   return (
     <div className="app-container">
@@ -241,6 +307,18 @@ function App() {
           </div>
         </div>
       </header>
+
+      {storageStatus && (
+        <div style={{ margin: '0 20px 12px', padding: '10px 12px', borderRadius: 8, border: '1px solid #fecaca', background: '#fef2f2', color: '#991b1b', fontSize: 13 }}>
+          {storageStatus}
+        </div>
+      )}
+
+      {appStatus && (
+        <div style={{ margin: '0 20px 12px', padding: '10px 12px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1e3a8a', fontSize: 13 }}>
+          {appStatus}
+        </div>
+      )}
 
       {/* Main tab navigation */}
       <div className="main-tab-bar">
@@ -367,7 +445,7 @@ function App() {
         )}
 
         {/* Tab 2: 3D Truck View */}
-        {activeTab === 2 && loadPlan && currentTruckWithPositions && (
+        {activeTab === 2 && loadPlan && currentTruck && (
           <div className="tab-panel tab-panel-3d">
             <div className="viewer-3d-layout">
               {loadPlan.trucks.length > 1 && (
@@ -386,7 +464,7 @@ function App() {
               )}
               <div className="viewer-3d-fullsize">
                 <TruckViewer3D
-                  truck={currentTruckWithPositions}
+                  truck={currentTruck}
                   selectedBundleId={selectedBundleId}
                   onBundleSelect={handleBundleSelect}
                   onBundleMove={handleBundleMove}
